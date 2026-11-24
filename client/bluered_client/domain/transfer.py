@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Final
 
 from .enums import TransferState
@@ -200,3 +201,18 @@ class TransferTask:
             )
         self.bytes_transferred = new_total
         self.updated_at = datetime.now(UTC)
+
+
+@dataclass(frozen=True, slots=True)
+class DownloadCheckpoint:
+    """Persisted download checkpoint record for Cas_22 resume."""
+
+    task_id: str
+    file_hash: str
+    file_name: str
+    target_path: Path
+    total_bytes: int
+    bytes_transferred: int
+    state: str
+    source_peer_id: str
+    updated_at: datetime

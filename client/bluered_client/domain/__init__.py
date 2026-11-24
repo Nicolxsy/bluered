@@ -3,25 +3,42 @@
 from __future__ import annotations
 
 from .enums import PresenceStatus, TransferState
-from .errors import DomainError, DomainValidationError, InvalidStateTransitionError
+from .errors import (
+    DomainError,
+    DomainValidationError,
+    InsufficientDiskSpaceError,
+    InvalidStateTransitionError,
+    NatTraversalError,
+    PeerBlockedError,
+    QueueFullError,
+    RemoteFileChangedError,
+    TransferIntegrityError,
+)
 from .files import FileReview, SearchMatch, SharedFile
 from .messaging import PrivateMessage
 from .peers import LocalPeer, PeerNode, RemotePeer
-from .transfer import VALID_TRANSITIONS, TransferTask
+from .transfer import VALID_TRANSITIONS, DownloadCheckpoint, TransferTask
 
 __all__ = [
     "VALID_TRANSITIONS",
     "DomainError",
     "DomainValidationError",
+    "DownloadCheckpoint",
     "FileReview",
+    "InsufficientDiskSpaceError",
     "InvalidStateTransitionError",
     "LocalPeer",
+    "NatTraversalError",
+    "PeerBlockedError",
     "PeerNode",
     "PresenceStatus",
     "PrivateMessage",
+    "QueueFullError",
+    "RemoteFileChangedError",
     "RemotePeer",
     "SearchMatch",
     "SharedFile",
+    "TransferIntegrityError",
     "TransferState",
     "TransferTask",
 ]

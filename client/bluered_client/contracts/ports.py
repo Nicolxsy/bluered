@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from bluered_client.domain import (
+    DownloadCheckpoint,
     FileReview,
     LocalPeer,
     PrivateMessage,
@@ -160,3 +161,69 @@ class IBloomSyncSource(Protocol):
     """Optional extension for exporting Bloom filter state for server sync."""
 
     def export_bloom_sync_payload(self) -> tuple[int, int, str]: ...
+
+
+@runtime_checkable
+class IDownloadCheckpointStore(Protocol):
+    """Segregated persistence port for TransferTask checkpoints (Cas_22)."""
+
+    async def save_download_checkpoint(
+        self,
+        task_id: str,
+        file_hash: str,
+        file_name: str,
+        target_path: Path,
+        total_bytes: int,
+        bytes_transferred: int,
+        state: str,
+        source_peer_id: str,
+    ) -> None: ...
+
+    async def get_download_checkpoint(self, task_id: str) -> DownloadCheckpoint | None: ...
+
+    async def list_incomplete_checkpoints(self) -> list[DownloadCheckpoint]: ...
+
+    async def delete_download_checkpoint(self, task_id: str) -> bool: ...
+
+
+@runtime_checkable
+class IPendingMessageStore(Protocol):
+    """Segregated persistence port for offline private chat messages (Cas_23)."""
+
+    async def enqueue_pending_message(self, message: PrivateMessage) -> None: ...
+
+    async def list_pending_messages(
+        self, recipient_id: str | None = None
+    ) -> list[PrivateMessage]: ...
+
+    async def mark_message_delivered(self, message_id: str) -> bool: ...
+
+
+@runtime_checkable
+class INatSignalingCoordinator(Protocol):
+    """Optional NAT signaling extension on IServerCoordinator (Cas_20)."""
+
+    async def request_nat_punch(
+        self, target_peer_id: str, requester_ip: str, requester_port: int
+    ) -> None: ...
+
+    async def request_nat_relay(self, target_peer_id: str, session_id: str) -> None: ...
+
+    def set_nat_signal_handler(
+        self, handler: Callable[[Any], Awaitable[None]]
+    ) -> None: ...
+
+
+@runtime_checkable
+class IStreamingPeerTransport(IPeerTransport, Protocol):
+    """Optional streaming extension of IPeerTransport exposing queue/slot/hash metadata."""
+
+    def stream_file_download(
+        self,
+        peer: RemotePeer,
+        file_hash: str,
+        offset: int = 0,
+        *,
+        on_queue_status: Callable[[int], Awaitable[None]] | None = None,
+        on_slot_available: Callable[[], Awaitable[None]] | None = None,
+    ) -> AsyncIterator[tuple[int, bytes, str]]: ...

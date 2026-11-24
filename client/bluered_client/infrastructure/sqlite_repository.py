@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Self
@@ -10,7 +9,9 @@ from typing import Self
 import aiosqlite
 from bluered_contracts.bloom import tokenize_filename
 
-from bluered_client.domain import PrivateMessage, SharedFile
+from bluered_client.domain import DownloadCheckpoint, PrivateMessage, SharedFile
+
+__all__ = ["DownloadCheckpoint", "SqliteFileRepository"]
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS shared_directories (
@@ -56,21 +57,6 @@ CREATE TABLE IF NOT EXISTS pending_private_messages (
     created_at TEXT NOT NULL
 );
 """
-
-
-@dataclass(frozen=True, slots=True)
-class DownloadCheckpoint:
-    """Persisted download checkpoint record for Cas_22 resume."""
-
-    task_id: str
-    file_hash: str
-    file_name: str
-    target_path: Path
-    total_bytes: int
-    bytes_transferred: int
-    state: str
-    source_peer_id: str
-    updated_at: datetime
 
 
 class SqliteFileRepository:

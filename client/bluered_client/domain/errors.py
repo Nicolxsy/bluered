@@ -32,3 +32,27 @@ class InvalidStateTransitionError(DomainError):
             f"Invalid TransferTask transition: {current_state.value} -> "
             f"{target_state.value}{detail}"
         )
+
+
+class QueueFullError(DomainError):
+    """Raised when an upload or transfer queue has reached its capacity limit."""
+
+
+class InsufficientDiskSpaceError(DomainError):
+    """Raised when available disk space is smaller than the target file size."""
+
+
+class PeerBlockedError(DomainError):
+    """Raised when a remote peer rejects an operation with 403 because the sender is blocked."""
+
+
+class RemoteFileChangedError(DomainError):
+    """Raised when a remote file hash or size changed during a resume attempt (409)."""
+
+
+class TransferIntegrityError(DomainError):
+    """Raised when chunk or full-file SHA-256 verification fails."""
+
+
+class NatTraversalError(DomainError):
+    """Raised when all configured NAT traversal strategies fail to establish a TCP stream."""
