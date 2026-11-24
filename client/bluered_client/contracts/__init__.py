@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from .ports import (
+    IBloomSyncSource,
     IFileIndexRepository,
+    IIncrementalIndexRepository,
     IIntegrityVerifier,
     INatTraversalStrategy,
     IPeerTransport,
@@ -13,7 +15,9 @@ from .ports import (
 )
 
 __all__ = [
+    "IBloomSyncSource",
     "IFileIndexRepository",
+    "IIncrementalIndexRepository",
     "IIntegrityVerifier",
     "INatTraversalStrategy",
     "IPeerTransport",

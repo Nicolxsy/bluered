@@ -6,7 +6,16 @@ build-backend = "hatchling.build"
 name = "bluered-server"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["bluered-contracts"]
+dependencies = [
+    "bluered-contracts",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "asyncpg>=0.30",
+    "redis>=5.2",
+    "argon2-cffi>=23.1",
+    "pyjwt>=2.10",
+    "httpx>=0.28",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["bluered_server"]

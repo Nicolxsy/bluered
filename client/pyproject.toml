@@ -6,7 +6,11 @@ build-backend = "hatchling.build"
 name = "bluered-client"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["bluered-contracts"]
+dependencies = [
+    "bluered-contracts",
+    "aiosqlite>=0.20",
+    "websockets>=14.0",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["bluered_client"]

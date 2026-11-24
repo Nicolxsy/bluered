@@ -121,3 +121,21 @@ class ICommunityRepository(Protocol):
     async def save_library_item(self, item: LibraryItem) -> None: ...
 
     async def list_library_items(self, owner_id: str) -> list[LibraryItem]: ...
+
+
+@runtime_checkable
+class IPasswordHasher(Protocol):
+    """Password hashing and verification port (e.g. Argon2id)."""
+
+    def hash_password(self, password: str) -> str: ...
+
+    def verify_password(self, password: str, password_hash: str) -> bool: ...
+
+
+@runtime_checkable
+class ITokenProvider(Protocol):
+    """Stateless session token issuer and verifier (e.g. JWT)."""
+
+    def issue_token(self, user_id: str, username: str) -> str: ...
+
+    def verify_token(self, token: str) -> tuple[str, str] | None: ...

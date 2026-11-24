@@ -6,8 +6,10 @@ from .ports import (
     IClientPushGateway,
     ICommunityRepository,
     IFileReviewRepository,
+    IPasswordHasher,
     ISearchRoutingStrategy,
     ISessionStore,
+    ITokenProvider,
     IUserRepository,
 )
 
@@ -15,7 +17,9 @@ __all__ = [
     "IClientPushGateway",
     "ICommunityRepository",
     "IFileReviewRepository",
+    "IPasswordHasher",
     "ISearchRoutingStrategy",
     "ISessionStore",
+    "ITokenProvider",
     "IUserRepository",
 ]

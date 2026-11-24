@@ -136,3 +136,27 @@ class IIntegrityVerifier(Protocol):
     async def compute_file_hash(self, file_path: Path) -> str: ...
 
     async def verify_file(self, file_path: Path, expected_hash: str) -> bool: ...
+
+
+@runtime_checkable
+class IIncrementalIndexRepository(Protocol):
+    """Optional extension for directory registration and mtime/size_bytes skip (Cas_09/Cas_10)."""
+
+    async def add_shared_directory(self, dir_path: Path) -> int: ...
+
+    async def get_file_stat_by_path(self, local_path: Path) -> tuple[str, float, int] | None: ...
+
+    async def upsert_indexed_file(
+        self,
+        shared_file: SharedFile,
+        *,
+        mtime: float = 0.0,
+        directory_id: int | None = None,
+    ) -> None: ...
+
+
+@runtime_checkable
+class IBloomSyncSource(Protocol):
+    """Optional extension for exporting Bloom filter state for server sync."""
+
+    def export_bloom_sync_payload(self) -> tuple[int, int, str]: ...
