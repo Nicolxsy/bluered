@@ -1,0 +1,14 @@
+Clean Architecture & Principio de Dependencias Estables (SDP)
+=============================================================
+
+La estabilidad de un paquete se mide mediante la metrica de inestabilidad:
+
+    I = Ce / (Ca + Ce)
+
+Donde:
+- Ca (Afferent Couplings): modulos externos que dependen de este paquete.
+- Ce (Efferent Couplings): modulos externos de los que depende este paquete.
+
+Regla de oro:
+Toda dependencia A -> B debe cumplir I(B) <= I(A).
+El nucleo de dominio (domain/) debe mantener I = 0.00 en todo momento.

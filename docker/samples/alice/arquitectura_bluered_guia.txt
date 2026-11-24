@@ -1,0 +1,27 @@
+BlueRed — Guia de Arquitectura P2P Hibrida
+==========================================
+
+1. Separacion de Planos
+-----------------------
+BlueRed separa estrictamente el Plano de Control (WebSockets JSON hacia el
+servidor central para autenticacion, presencia, enrutamiento con filtros de
+Bloom, comunidades y resenas ACID) del Plano de Datos (sockets TCP directos
+con framing binario determinista entre pares).
+
+2. Clean Architecture y SOLID
+-----------------------------
+- Domain Core (I = 0.00): entidades puras en Python estandar sin dependencias
+  externas (PeerNode, SharedFile, TransferTask, FileReview).
+- Contracts: interfaces Protocol que invierten las dependencias (DIP).
+- Application: casos de uso Cas_01 a Cas_24 con inyeccion por constructor.
+- Infrastructure & Presentation: adaptadores concretos (PostgreSQL, Redis,
+  SQLite WAL, TCP framing, FastAPI).
+
+3. Persistencia Poliglota
+-------------------------
+- Redis (RAM): sesiones activas con TTL=45s, rutas de busqueda TTL=60s y
+  filtros de Bloom en bytes crudos.
+- PostgreSQL (Disco ACID): usuarios, catalogo desnormalizado de archivos,
+  resenas con unicidad (file_hash, author_id) y comunidades.
+- SQLite WAL (Cliente): indice incremental de carpetas compartidas, checkpoints
+  de descarga resumible y buzon offline de chat privado.

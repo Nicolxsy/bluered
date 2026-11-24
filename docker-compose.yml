@@ -6,14 +6,15 @@ services:
       POSTGRES_PASSWORD: bluered_dev
       POSTGRES_DB: bluered
     ports:
-      - "5432:5432"
+      - "${BLUERED_PG_HOST_PORT:-5433}:5432"
     volumes:
       - bluered_pgdata:/var/lib/postgresql/data
+      - ./server/migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U bluered -d bluered"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
 
   redis:
     image: redis:7-alpine
@@ -24,7 +25,166 @@ services:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+
+  bluered-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    environment:
+      BLUERED_POSTGRES_DSN: postgresql://bluered:bluered_dev@postgres:5432/bluered
+      BLUERED_REDIS_URL: redis://redis:6379/0
+      BLUERED_JWT_SECRET: bluered-dev-secret-change-me
+      BLUERED_RUN_MIGRATIONS: "1"
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: "8000"
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  peer-alice:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    environment:
+      PEER_USERNAME: alice
+      PEER_PASSWORD: bluered123
+      PEER_TCP_PORT: "2234"
+      PEER_BIND_HOST: 0.0.0.0
+      PEER_ADVERTISED_HOST: peer-alice
+      UI_HOST: 0.0.0.0
+      UI_PORT: "8001"
+      SHARED_DIR: /data/shared
+      DOWNLOAD_DIR: /data/downloads
+      DB_PATH: /data/db/alice.db
+      MAX_UPLOAD_SLOTS: "1"
+      SERVER_WS_URL: ws://bluered-server:8000/ws
+      AUTO_LOGIN: "1"
+    ports:
+      - "8001:8001"
+      - "2234:2234"
+    volumes:
+      - ./docker/samples/alice:/data/shared:ro
+      - peer_alice_downloads:/data/downloads
+      - peer_alice_db:/data/db
+    depends_on:
+      bluered-server:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=3)",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  peer-bob:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    environment:
+      PEER_USERNAME: bob
+      PEER_PASSWORD: bluered123
+      PEER_TCP_PORT: "2235"
+      PEER_BIND_HOST: 0.0.0.0
+      PEER_ADVERTISED_HOST: peer-bob
+      UI_HOST: 0.0.0.0
+      UI_PORT: "8002"
+      SHARED_DIR: /data/shared
+      DOWNLOAD_DIR: /data/downloads
+      DB_PATH: /data/db/bob.db
+      MAX_UPLOAD_SLOTS: "2"
+      SERVER_WS_URL: ws://bluered-server:8000/ws
+      AUTO_LOGIN: "1"
+    ports:
+      - "8002:8002"
+      - "2235:2235"
+    volumes:
+      - ./docker/samples/bob:/data/shared:ro
+      - peer_bob_downloads:/data/downloads
+      - peer_bob_db:/data/db
+    depends_on:
+      bluered-server:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health', timeout=3)",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  peer-carol:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    environment:
+      PEER_USERNAME: carol
+      PEER_PASSWORD: bluered123
+      PEER_TCP_PORT: "2236"
+      PEER_BIND_HOST: 0.0.0.0
+      PEER_ADVERTISED_HOST: peer-carol
+      UI_HOST: 0.0.0.0
+      UI_PORT: "8003"
+      SHARED_DIR: /data/shared
+      DOWNLOAD_DIR: /data/downloads
+      DB_PATH: /data/db/carol.db
+      MAX_UPLOAD_SLOTS: "1"
+      SERVER_WS_URL: ws://bluered-server:8000/ws
+      AUTO_LOGIN: "1"
+    ports:
+      - "8003:8003"
+      - "2236:2236"
+    volumes:
+      - peer_carol_downloads:/data/downloads
+      - peer_carol_db:/data/db
+    depends_on:
+      bluered-server:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8003/health', timeout=3)",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
 
 volumes:
   bluered_pgdata: {}
+  peer_alice_downloads: {}
+  peer_alice_db: {}
+  peer_bob_downloads: {}
+  peer_bob_db: {}
+  peer_carol_downloads: {}
+  peer_carol_db: {}

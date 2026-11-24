@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BlueRed — Nodo P2P</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Navegación principal">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="6" cy="12" r="3" />
+            <circle cx="18" cy="6" r="3" />
+            <circle cx="18" cy="18" r="3" />
+            <line x1="8.7" y1="10.7" x2="15.3" y2="7.3" />
+            <line x1="8.7" y1="13.3" x2="15.3" y2="16.7" />
+          </svg>
+        </span>
+        <div class="brand-text">
+          <span class="brand-name">BlueRed</span>
+          <span class="brand-sub" id="sidebar-peer-label">Conectando…</span>
+        </div>
+      </div>
+
+      <nav class="nav-list" role="tablist" aria-orientation="vertical">
+        <button class="nav-item is-active" role="tab" aria-selected="true" data-tab="session">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>
+          <span>Sesión y Presencia</span>
+        </button>
+        <button class="nav-item" role="tab" aria-selected="false" data-tab="folders">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          <span>Carpetas Compartidas</span>
+        </button>
+        <button class="nav-item" role="tab" aria-selected="false" data-tab="search">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <span>Búsqueda y Reseñas</span>
+        </button>
+        <button class="nav-item" role="tab" aria-selected="false" data-tab="transfers">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/><path d="M5 19h14"/></svg>
+          <span>Transferencias y Colas</span>
+          <span class="nav-badge" id="nav-transfer-count" hidden>0</span>
+        </button>
+        <button class="nav-item" role="tab" aria-selected="false" data-tab="community">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span>Comunidades y Chat</span>
+        </button>
+        <button class="nav-item" role="tab" aria-selected="false" data-tab="library">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+          <span>Biblioteca Personal</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="ws-status" id="ws-indicator">
+          <span class="status-dot dot-offline" id="ws-dot"></span>
+          <span id="ws-text">WS local desconectado</span>
+        </div>
+        <div class="node-meta tabular" id="sidebar-tcp-meta">TCP :—</div>
+      </div>
+    </aside>
+
+    <main class="workspace">
+      <div class="toast-region" id="toast-region" aria-live="polite"></div>
+
+      <!-- TAB 1: SESIÓN Y PRESENCIA -->
+      <section class="tab-panel is-active" id="tab-session" role="tabpanel">
+        <header class="panel-header">
+          <div>
+            <h1>Sesión y Presencia</h1>
+            <p class="panel-desc">Autenticación en el servidor central, estado de disponibilidad y telemetría en vivo del Filtro de Bloom.</p>
+          </div>
+          <div class="header-actions">
+            <span class="pill" id="session-presence-pill">OFFLINE</span>
+            <button class="btn btn-secondary" id="btn-refresh-session" type="button">Actualizar</button>
+          </div>
+        </header>
+
+        <div class="grid-two">
+          <section class="surface">
+            <h2>Cuenta y Autenticación</h2>
+            <form id="form-auth" class="stack-form">
+              <div class="field">
+                <label for="auth-username">Usuario</label>
+                <input id="auth-username" name="username" type="text" required minlength="3" maxlength="64" placeholder="ej. alice" autocomplete="username" />
+              </div>
+              <div class="field">
+                <label for="auth-password">Contraseña</label>
+                <input id="auth-password" name="password" type="password" required minlength="1" maxlength="256" placeholder="••••••••" autocomplete="current-password" />
+              </div>
+              <div class="btn-row">
+                <button class="btn btn-primary" type="submit" data-action="login">Iniciar sesión</button>
+                <button class="btn btn-secondary" type="button" id="btn-register">Registrar cuenta</button>
+                <button class="btn btn-ghost" type="button" id="btn-logout">Cerrar sesión</button>
+              </div>
+            </form>
+
+            <div class="divider"></div>
+
+            <h3>Estado de Presencia</h3>
+            <div class="segmented" role="group" aria-label="Estado de presencia">
+              <button type="button" class="seg-btn" data-presence="ONLINE">ONLINE</button>
+              <button type="button" class="seg-btn" data-presence="AWAY">AWAY</button>
+              <button type="button" class="seg-btn" data-presence="OFFLINE">OFFLINE</button>
+            </div>
+          </section>
+
+          <section class="surface">
+            <h2>Telemetría del Nodo y Filtro de Bloom</h2>
+            <dl class="kv-list tabular">
+              <div class="kv-row"><dt>Peer ID</dt><dd id="meta-peer-id">—</dd></div>
+              <div class="kv-row"><dt>Endpoint TCP</dt><dd id="meta-endpoint">—</dd></div>
+              <div class="kv-row"><dt>Slots de subida</dt><dd id="meta-slots">0 / 0</dd></div>
+              <div class="kv-row"><dt>Tamaño Bloom (m)</dt><dd id="bloom-size-bits">0 bits</dd></div>
+              <div class="kv-row"><dt>Funciones hash (k)</dt><dd id="bloom-hash-k">0</dd></div>
+              <div class="kv-row"><dt>Rechazos O(1) en RAM</dt><dd id="bloom-rejects">0</dd></div>
+              <div class="kv-row"><dt>Aciertos Bloom</dt><dd id="bloom-hits">0</dd></div>
+              <div class="kv-row"><dt>Consultas SQLite</dt><dd id="bloom-sqlite">0</dd></div>
+            </dl>
+          </section>
+        </div>
+      </section>
+
+      <!-- TAB 2: CARPETAS COMPARTIDAS -->
+      <section class="tab-panel" id="tab-folders" role="tabpanel" hidden>
+        <header class="panel-header">
+          <div>
+            <h1>Carpetas Compartidas</h1>
+            <p class="panel-desc">Indexación incremental por huella SHA-256, clasificación temática y sincronización automática con el Filtro de Bloom.</p>
+          </div>
+          <div class="header-actions">
+            <button class="btn btn-primary" id="btn-reindex" type="button">Reindexar todo</button>
+          </div>
+        </header>
+
+        <section class="surface">
+          <form id="form-add-folder" class="inline-form">
+            <label class="sr-only" for="input-folder-path">Ruta de carpeta local</label>
+            <input id="input-folder-path" type="text" required placeholder="/data/shared" />
+            <button class="btn btn-primary" type="submit">Añadir carpeta</button>
+          </form>
+          <ul class="chip-list" id="shared-dirs-list"></ul>
+        </section>
+
+        <section class="surface table-surface">
+          <div class="table-toolbar">
+            <h2>Archivos Indexados</h2>
+            <span class="muted tabular" id="indexed-count-label">0 archivos</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Archivo</th>
+                  <th>Categoría</th>
+                  <th class="num">Tamaño</th>
+                  <th>SHA-256</th>
+                </tr>
+              </thead>
+              <tbody id="shared-files-tbody">
+                <tr><td colspan="4" class="empty-cell">No hay archivos compartidos indexados.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <!-- TAB 3: BÚSQUEDA GLOBAL Y RESEÑAS -->
+      <section class="tab-panel" id="tab-search" role="tabpanel" hidden>
+        <header class="panel-header">
+          <div>
+            <h1>Búsqueda Global y Reseñas</h1>
+            <p class="panel-desc">Consulta federada filtrada por Bloom, reputación centralizada y transferencia directa peer-to-peer.</p>
+          </div>
+        </header>
+
+        <section class="surface">
+          <form id="form-search" class="inline-form">
+            <label class="sr-only" for="input-search-query">Buscar archivos en la red</label>
+            <input id="input-search-query" type="search" required placeholder="Buscar por nombre, artista, tema o extensión…" />
+            <button class="btn btn-primary" type="submit" id="btn-search-submit">Buscar en la red</button>
+          </form>
+        </section>
+
+        <section class="surface table-surface">
+          <div class="table-toolbar">
+            <h2>Resultados</h2>
+            <span class="muted tabular" id="search-count-label">Sin búsquedas activas</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Archivo</th>
+                  <th>Peer</th>
+                  <th class="num">Tamaño</th>
+                  <th>Reputación</th>
+                  <th class="actions-col">Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="search-results-tbody">
+                <tr><td colspan="5" class="empty-cell">Ingresa un término de búsqueda para consultar peers conectados.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <!-- TAB 4: TRANSFERENCIAS Y COLAS -->
+      <section class="tab-panel" id="tab-transfers" role="tabpanel" hidden>
+        <header class="panel-header">
+          <div>
+            <h1>Transferencias y Colas</h1>
+            <p class="panel-desc">Progreso en tiempo real vía WebSocket local, máquina de estados y control de pausa, reanudación y cancelación.</p>
+          </div>
+          <div class="header-actions">
+            <span class="muted tabular" id="transfers-slots-label">Subidas activas: 0 / 0</span>
+            <button class="btn btn-secondary" id="btn-refresh-transfers" type="button">Sincronizar</button>
+          </div>
+        </header>
+
+        <div class="transfer-list" id="transfers-list">
+          <div class="surface empty-state">No hay transferencias registradas en esta sesión.</div>
+        </div>
+      </section>
+
+      <!-- TAB 5: COMUNIDADES, DEBATES, SALAS Y CHAT PRIVADO P2P -->
+      <section class="tab-panel" id="tab-community" role="tabpanel" hidden>
+        <header class="panel-header">
+          <div>
+            <h1>Comunidades, Debates, Salas y Chat P2P</h1>
+            <p class="panel-desc">Organización por comunidades temáticas, hilos de debate, salas en vivo y mensajería directa peer-to-peer.</p>
+          </div>
+        </header>
+
+        <div class="grid-two">
+          <section class="surface">
+            <h2>Comunidades y Subcomunidades</h2>
+            <form id="form-community" class="stack-form">
+              <div class="field">
+                <label for="comm-name">Nombre</label>
+                <input id="comm-name" type="text" required placeholder="ej. Electrónica Clásica" />
+              </div>
+              <div class="field">
+                <label for="comm-desc">Descripción</label>
+                <input id="comm-desc" type="text" placeholder="Propósito o curaduría" />
+              </div>
+              <button class="btn btn-primary" type="submit">Crear comunidad</button>
+            </form>
+            <ul class="item-list" id="communities-list"></ul>
+
+            <div class="divider"></div>
+
+            <h3>Publicar Hilo de Debate</h3>
+            <form id="form-debate" class="stack-form">
+              <div class="field">
+                <label for="debate-comm-id">Comunidad</label>
+                <select id="debate-comm-id"></select>
+              </div>
+              <div class="field">
+                <label for="debate-title">Título</label>
+                <input id="debate-title" type="text" required placeholder="Título del debate" />
+              </div>
+              <div class="field">
+                <label for="debate-body">Contenido</label>
+                <textarea id="debate-body" rows="2" required placeholder="Plantea tu argumento o recurso…"></textarea>
+              </div>
+              <button class="btn btn-secondary" type="submit">Publicar debate</button>
+            </form>
+            <div class="debate-feed" id="debates-list"></div>
+          </section>
+
+          <section class="surface">
+            <h2>Salas de Chat</h2>
+            <form id="form-room-join" class="inline-form">
+              <input id="room-join-id" type="text" required placeholder="ID de sala (pública o privada)" value="general" />
+              <button class="btn btn-secondary" type="submit">Unirse</button>
+            </form>
+            <div class="chat-log" id="room-messages-log"></div>
+            <form id="form-room-msg" class="inline-form">
+              <input id="room-msg-input" type="text" required placeholder="Mensaje a la sala activa…" />
+              <button class="btn btn-primary" type="submit">Enviar</button>
+            </form>
+
+            <div class="divider"></div>
+
+            <h2>Chat Privado P2P Directo</h2>
+            <form id="form-private-chat" class="stack-form">
+              <div class="grid-two-tight">
+                <div class="field">
+                  <label for="pm-peer-id">Peer ID</label>
+                  <input id="pm-peer-id" type="text" required placeholder="peer-id" />
+                </div>
+                <div class="field">
+                  <label for="pm-peer-username">Usuario</label>
+                  <input id="pm-peer-username" type="text" required placeholder="bob" />
+                </div>
+                <div class="field">
+                  <label for="pm-peer-ip">Host / IP</label>
+                  <input id="pm-peer-ip" type="text" required placeholder="peer-bob" value="127.0.0.1" />
+                </div>
+                <div class="field">
+                  <label for="pm-peer-port">Puerto TCP</label>
+                  <input id="pm-peer-port" type="number" required min="1" max="65535" value="2235" />
+                </div>
+              </div>
+              <div class="inline-form">
+                <input id="pm-content" type="text" required placeholder="Mensaje directo P2P…" />
+                <button class="btn btn-primary" type="submit">Enviar P2P</button>
+                <button class="btn btn-danger" type="button" id="btn-block-peer">Bloquear</button>
+              </div>
+            </form>
+            <div class="blocked-bar" id="blocked-peers-bar"></div>
+            <div class="chat-log" id="private-messages-log"></div>
+          </section>
+        </div>
+      </section>
+
+      <!-- TAB 6: BIBLIOTECA PERSONAL -->
+      <section class="tab-panel" id="tab-library" role="tabpanel" hidden>
+        <header class="panel-header">
+          <div>
+            <h1>Biblioteca Personal</h1>
+            <p class="panel-desc">Conocimiento preservado y archivos descargados con acceso directo a publicación y lectura de reseñas.</p>
+          </div>
+        </header>
+
+        <section class="surface">
+          <form id="form-library-save" class="inline-form">
+            <input id="lib-hash" type="text" required minlength="64" maxlength="64" placeholder="SHA-256 (64 hex)" />
+            <input id="lib-title" type="text" required placeholder="Título del recurso" />
+            <button class="btn btn-primary" type="submit">Preservar</button>
+          </form>
+        </section>
+
+        <section class="surface table-surface">
+          <div class="table-toolbar">
+            <h2>Recursos Guardados</h2>
+            <span class="muted tabular" id="library-count-label">0 elementos</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Título</th>
+                  <th>Origen</th>
+                  <th>SHA-256</th>
+                  <th class="actions-col">Acción</th>
+                </tr>
+              </thead>
+              <tbody id="library-tbody">
+                <tr><td colspan="4" class="empty-cell">Aún no has guardado ni descargado recursos en tu biblioteca.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <!-- MODAL: RESEÑAS -->
+  <dialog class="modal" id="modal-reviews">
+    <div class="modal-header">
+      <div>
+        <h2 id="reviews-modal-title">Reseñas del archivo</h2>
+        <p class="mono muted" id="reviews-modal-hash"></p>
+      </div>
+      <button class="btn btn-ghost" type="button" data-close-modal="modal-reviews">Cerrar</button>
+    </div>
+    <div class="modal-body">
+      <div class="review-summary" id="reviews-summary">Sin calificaciones todavía.</div>
+      <form id="form-review" class="stack-form">
+        <div class="field">
+          <label>Tu calificación (1–5)</label>
+          <div class="star-picker" id="star-picker" role="radiogroup" aria-label="Calificación de 1 a 5 estrellas">
+            <button type="button" class="star-btn" data-rating="1" aria-label="1 estrella">★</button>
+            <button type="button" class="star-btn" data-rating="2" aria-label="2 estrellas">★</button>
+            <button type="button" class="star-btn" data-rating="3" aria-label="3 estrellas">★</button>
+            <button type="button" class="star-btn" data-rating="4" aria-label="4 estrellas">★</button>
+            <button type="button" class="star-btn is-selected" data-rating="5" aria-label="5 estrellas">★</button>
+          </div>
+        </div>
+        <div class="field">
+          <label for="review-comment">Comentario</label>
+          <textarea id="review-comment" rows="3" required placeholder="Describe calidad, integridad o utilidad del archivo…"></textarea>
+        </div>
+        <button class="btn btn-primary" type="submit">Publicar o actualizar reseña</button>
+      </form>
+      <div class="divider"></div>
+      <div class="reviews-list" id="reviews-list"></div>
+    </div>
+  </dialog>
+
+  <!-- MODAL: EXPLORAR USUARIO (Cas_16) -->
+  <dialog class="modal" id="modal-browse">
+    <div class="modal-header">
+      <div>
+        <h2 id="browse-modal-title">Catálogo del Peer</h2>
+        <p class="mono muted" id="browse-modal-endpoint"></p>
+      </div>
+      <button class="btn btn-ghost" type="button" data-close-modal="modal-browse">Cerrar</button>
+    </div>
+    <div class="modal-body">
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Archivo</th>
+              <th>Categoría</th>
+              <th class="num">Tamaño</th>
+              <th class="actions-col">Acción</th>
+            </tr>
+          </thead>
+          <tbody id="browse-files-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </dialog>
+
+  <script type="module" src="/static/app.js"></script>
+</body>
+</html>
