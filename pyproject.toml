@@ -1,0 +1,100 @@
+[project]
+name = "bluered"
+version = "0.1.0"
+description = "BlueRed P2P hybrid system"
+requires-python = ">=3.12"
+dependencies = [
+    "bluered-contracts",
+    "bluered-server",
+    "bluered-client",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.25",
+    "ruff>=0.9",
+    "mypy>=1.14",
+    "import-linter>=2.1",
+]
+
+[tool.uv.workspace]
+members = ["shared", "server", "client"]
+
+[tool.uv.sources]
+bluered-contracts = { workspace = true }
+bluered-server = { workspace = true }
+bluered-client = { workspace = true }
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+mypy_path = ["shared", "server", "client"]
+explicit_package_bases = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.importlinter]
+root_packages = [
+    "bluered_contracts",
+    "bluered_server",
+    "bluered_client",
+]
+
+[[tool.importlinter.contracts]]
+name = "Client domain cannot import outer layers"
+type = "forbidden"
+source_modules = ["bluered_client.domain"]
+forbidden_modules = [
+    "bluered_client.application",
+    "bluered_client.infrastructure",
+    "bluered_client.presentation",
+]
+
+[[tool.importlinter.contracts]]
+name = "Server domain cannot import outer layers"
+type = "forbidden"
+source_modules = ["bluered_server.domain"]
+forbidden_modules = [
+    "bluered_server.application",
+    "bluered_server.infrastructure",
+    "bluered_server.presentation",
+]
+
+[[tool.importlinter.contracts]]
+name = "Client application cannot import infrastructure or presentation"
+type = "forbidden"
+source_modules = ["bluered_client.application"]
+forbidden_modules = [
+    "bluered_client.infrastructure",
+    "bluered_client.presentation",
+]
+
+[[tool.importlinter.contracts]]
+name = "Server application cannot import infrastructure or presentation"
+type = "forbidden"
+source_modules = ["bluered_server.application"]
+forbidden_modules = [
+    "bluered_server.infrastructure",
+    "bluered_server.presentation",
+]
+
+[[tool.importlinter.contracts]]
+name = "Client and server are independent"
+type = "independence"
+modules = [
+    "bluered_client",
+    "bluered_server",
+]
