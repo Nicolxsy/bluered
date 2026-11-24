@@ -1,0 +1,25 @@
+=============
+Import Linter
+=============
+
+
+---------
+Contracts
+---------
+
+Analyzed 60 files, 127 dependencies.
+------------------------------------
+
+Client domain cannot import outer layers KEPT
+Server domain cannot import outer layers KEPT
+Client contracts only depend on client domain KEPT
+Server contracts only depend on server domain KEPT
+Client application cannot import infrastructure or presentation KEPT
+Server application cannot import infrastructure or presentation KEPT
+Client presentation cannot import infrastructure or shared contracts KEPT
+Server presentation cannot import infrastructure KEPT
+Shared contracts cannot import client or server KEPT
+Client and server are independent KEPT
+
+Contracts: 10 kept, 0 broken.
+exit 0

@@ -33,6 +33,11 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
+[tool.ruff.lint.per-file-ignores]
+# Herramientas de la presentación: texto en español (guiones/tipografía) y plantillas largas.
+"scripts/build_presentation.py" = ["E501", "E702", "RUF001", "RUF002", "RUF003"]
+"scripts/_*.py" = ["E501", "E702", "RUF001", "RUF002", "RUF003"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true
@@ -58,9 +63,11 @@ name = "Client domain cannot import outer layers"
 type = "forbidden"
 source_modules = ["bluered_client.domain"]
 forbidden_modules = [
+    "bluered_client.contracts",
     "bluered_client.application",
     "bluered_client.infrastructure",
     "bluered_client.presentation",
+    "bluered_contracts",
 ]
 
 [[tool.importlinter.contracts]]
@@ -68,9 +75,33 @@ name = "Server domain cannot import outer layers"
 type = "forbidden"
 source_modules = ["bluered_server.domain"]
 forbidden_modules = [
+    "bluered_server.contracts",
     "bluered_server.application",
     "bluered_server.infrastructure",
     "bluered_server.presentation",
+    "bluered_contracts",
+]
+
+[[tool.importlinter.contracts]]
+name = "Client contracts only depend on client domain"
+type = "forbidden"
+source_modules = ["bluered_client.contracts"]
+forbidden_modules = [
+    "bluered_client.application",
+    "bluered_client.infrastructure",
+    "bluered_client.presentation",
+    "bluered_contracts",
+]
+
+[[tool.importlinter.contracts]]
+name = "Server contracts only depend on server domain"
+type = "forbidden"
+source_modules = ["bluered_server.contracts"]
+forbidden_modules = [
+    "bluered_server.application",
+    "bluered_server.infrastructure",
+    "bluered_server.presentation",
+    "bluered_contracts",
 ]
 
 [[tool.importlinter.contracts]]
@@ -80,6 +111,7 @@ source_modules = ["bluered_client.application"]
 forbidden_modules = [
     "bluered_client.infrastructure",
     "bluered_client.presentation",
+    "bluered_contracts",
 ]
 
 [[tool.importlinter.contracts]]
@@ -89,6 +121,32 @@ source_modules = ["bluered_server.application"]
 forbidden_modules = [
     "bluered_server.infrastructure",
     "bluered_server.presentation",
+]
+
+[[tool.importlinter.contracts]]
+name = "Client presentation cannot import infrastructure or shared contracts"
+type = "forbidden"
+source_modules = ["bluered_client.presentation"]
+forbidden_modules = [
+    "bluered_client.infrastructure",
+    "bluered_contracts",
+]
+
+[[tool.importlinter.contracts]]
+name = "Server presentation cannot import infrastructure"
+type = "forbidden"
+source_modules = ["bluered_server.presentation"]
+forbidden_modules = [
+    "bluered_server.infrastructure",
+]
+
+[[tool.importlinter.contracts]]
+name = "Shared contracts cannot import client or server"
+type = "forbidden"
+source_modules = ["bluered_contracts"]
+forbidden_modules = [
+    "bluered_client",
+    "bluered_server",
 ]
 
 [[tool.importlinter.contracts]]

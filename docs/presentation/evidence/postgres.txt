@@ -1,0 +1,65 @@
+--- \d file_reviews
+                         Table "public.file_reviews"
+     Column      |           Type           | Collation | Nullable | Default 
+-----------------+--------------------------+-----------+----------+---------
+ review_id       | text                     |           | not null | 
+ file_hash       | character(64)            |           | not null | 
+ author_id       | text                     |           | not null | 
+ author_username | character varying(64)    |           | not null | 
+ rating          | integer                  |           | not null | 
+ comment         | text                     |           | not null | 
+ created_at      | timestamp with time zone |           | not null | now()
+ updated_at      | timestamp with time zone |           | not null | now()
+Indexes:
+    "file_reviews_pkey" PRIMARY KEY, btree (review_id)
+    "file_reviews_file_hash_author_id_key" UNIQUE CONSTRAINT, btree (file_hash, author_id)
+    "idx_file_reviews_hash_updated" btree (file_hash, updated_at DESC)
+Check constraints:
+    "file_reviews_rating_check" CHECK (rating >= 1 AND rating <= 5)
+Foreign-key constraints:
+    "file_reviews_author_id_fkey" FOREIGN KEY (author_id) REFERENCES users(user_id) ON DELETE CASCADE
+    "file_reviews_file_hash_fkey" FOREIGN KEY (file_hash) REFERENCES file_catalog(file_hash) ON DELETE CASCADE
+
+--- (A) EXPLAIN ANALYZE tabla real (5 filas)
+                                                            QUERY PLAN                                                            
+----------------------------------------------------------------------------------------------------------------------------------
+ Index Scan using file_catalog_pkey on file_catalog  (cost=0.15..8.17 rows=1 width=272) (actual time=0.016..0.017 rows=1 loops=1)
+   Index Cond: (file_hash = ANY ('{dfd80ef36131cdc3c00887752d03ff5042088ed617f9ced1799462a5f832d415}'::character(64)[]))
+   Buffers: shared hit=2
+ Planning:
+   Buffers: shared hit=100
+ Planning Time: 0.683 ms
+ Execution Time: 0.076 ms
+(7 rows)
+
+--- (B) Mismo query, tabla con 100000 filas sinteticas dentro de BEGIN...ROLLBACK (sin persistir)
+BEGIN
+INSERT 0 100000
+ANALYZE
+                                                                  QUERY PLAN                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------
+ Bitmap Heap Scan on file_catalog  (cost=21.57..29.38 rows=2 width=77) (actual time=0.225..0.228 rows=2 loops=1)
+   Recheck Cond: (file_hash = ANY (ARRAY['dfd80ef36131cdc3c00887752d03ff5042088ed617f9ced1799462a5f832d415'::character(64), $0]))
+   Heap Blocks: exact=2
+   Buffers: shared hit=20
+   InitPlan 1 (returns $0)
+     ->  Limit  (cost=12.69..12.72 rows=1 width=65) (actual time=0.112..0.113 rows=1 loops=1)
+           Buffers: shared hit=9
+           ->  Seq Scan on file_catalog file_catalog_1  (cost=0.00..2539.05 rows=100005 width=65) (actual time=0.024..0.093 rows=501 loops=1)
+                 Buffers: shared hit=9
+   ->  Bitmap Index Scan on file_catalog_pkey  (cost=0.00..8.85 rows=2 width=0) (actual time=0.217..0.217 rows=2 loops=1)
+         Index Cond: (file_hash = ANY (ARRAY['dfd80ef36131cdc3c00887752d03ff5042088ed617f9ced1799462a5f832d415'::character(64), $0]))
+         Buffers: shared hit=18
+ Planning:
+   Buffers: shared hit=25
+ Planning Time: 0.452 ms
+ Execution Time: 0.322 ms
+(16 rows)
+
+ROLLBACK
+--- conteo tras rollback
+ count 
+-------
+     5
+(1 row)
+

@@ -1,0 +1,1517 @@
+
+
+===== PAGE 1 =====
+Blue Red
+Fundamentos de Ingeniería de Software
+Joel Pérez
+Código: 20242020017
+Sergio Osorio
+Código: 20241020073
+Nicolas Sierra
+Código: 20222020197
+Facultad de Ingeniería
+Universidad Distrital Francisco José de Caldas
+Bogotá D.C., Colombia
+6 de noviembre de 2026
+Resumen
+E
+n el presente documento se recopilan las especificaciones de casos de uso de un sistema para compartir
+y preservar conocimiento. Se presentan tres diagramas UML: la comunidad de conocimiento (BlueRed)
+y la interacción P2P en sus dos vistas, Cliente-Servidor y Cliente-Cliente. Cada caso de uso se describe con
+una plantilla que incluye nombre, identificador, actores, descripción, precondición, poscondición y escenarios
+primario, secundarios y excepcionales.
+Palabras clave — Casos de uso, UML, especificación de requisitos, sistemas P2P, ingeniería de software
+Estructura
+1
+Presentación
+1
+2
+Comunidad de conocimiento
+3
+3
+Interacción P2P Cliente-Servidor
+6
+4
+Interacción P2P Cliente-Cliente
+12
+5
+Diagramas de secuencia
+19
+6
+Diagramas de comunicación
+42
+7
+Arquitectura Estructural y Diseño de Clases
+46
+8
+Máquina de Estados de Transferencia (Cliente P2P)
+48
+9
+Diagrama de Actividad con Particiones: Orquestación del Flujo de Descarga P2P
+50
+10 Diagrama de Sistemas: Organización por Capas y Persistencia Políglota
+50
+11 Diagrama Integral de Componentes y Ensamblaje de Interfaces
+51
+12 Diagrama de Nodos: Topología Física, Infraestructura y Protocolos de Red
+52
+1. Presentación
+A
+continuación se presentan las especificaciones de casos de uso de los diagramas que modelan el sistema,
+desde la comunidad donde se comparte el conocimiento hasta la forma en que los clientes se conectan e
+intercambian archivos. Cada diagrama se acompaña de una tabla con sus casos de uso, y luego se incluye la
+plantilla de especificación de cada uno.
+
+
+===== PAGE 2 =====
+Tabla 1: Organización del documento
+Sección
+Diagrama
+Casos
+2. Comunidad de conocimiento
+BlueRed
+1 a 6
+3. Interacción P2P Cliente-Servidor
+Cliente, Servidor
+7 a 15
+4. Interacción P2P Cliente-Cliente
+Local, Remoto
+16 a 24
+5. Diagramas de secuencia
+Secuencia
+1 a 24
+6. Diagramas de comunicación
+Comunicación
+1 a 24
+Figura 1: Jerarquía de actores del sistema P2P. El diagrama ilustra cómo el Usuario Local y el Usuario Remoto heredan
+las capacidades simétricas del nodo P2P base (Peer), y presenta a los actores de soporte (Servidor Central y Sistema de
+Archivos Local).
+2
+
+
+===== PAGE 3 =====
+2. Comunidad de conocimiento
+El primer diagrama modela la comunidad en la que los usuarios comparten, debaten y preservan conocimiento,
+con Semilla como actor especializado de Usuarios.
+Figura 2: Diagrama de casos de uso de la comunidad de conocimiento
+Tabla 2: Casos de uso de la comunidad de conocimiento
+N.º
+Caso de uso
+1
+Crear comunidad
+2
+Compartir conocimiento
+3
+Generar debates
+4
+Preservar el conocimiento
+5
+Tratar temáticas especializadas
+6
+Descubrir intereses comunes
+3
+
+
+===== PAGE 4 =====
+Cas_01 – Crear comunidad. Es el punto de entrada del sistema: un usuario funda un espacio donde luego
+podrá compartir y descubrir conocimiento. De este caso dependen, de forma directa o indirecta, casi todos los
+demás de esta sección.
+Nombre: Crear comunidad
+ID: Cas_01
+Actores
+Usuarios del sistema
+Descripción
+Espacio social para el intercambio de conocimiento con un propósito de intercambio de
+dicha información de manera libre.
+Precondición
+La persona no puede tener un historial dudoso de sus intenciones.
+Poscondición
+Haber compartido conocimiento.
+Escenarios
+Primario
+1. Se crea un perfil.
+2. Se comparte conocimiento.
+3. Se obtiene conocimiento.
+4. Se genera debate.
+Secundarios
+1. El usuario tiene un historial dudoso.
+Excepcionales
+1. La comunidad no sigue el reglamento de la ley.
+Autor
+Joel Pérez
+Cas_02 – Compartir conocimiento. Dentro de la comunidad creada, los usuarios publican y obtienen co-
+nocimiento en distintos formatos. Este intercambio es el que, más adelante, da pie al debate (Cas_03) y a la
+preservación de lo compartido (Cas_04).
+Nombre: Compartir conocimiento
+ID: Cas_02
+Actores
+Usuarios del sistema
+Descripción
+Acción de compartir conocimiento mediante distintos formatos.
+Precondición
+Tener un conocimiento que compartir.
+Poscondición
+Generación de discusión.
+Escenarios
+Primario
+1. Se presenta conocimiento.
+2. Se busca conocimiento.
+3. Se obtiene conocimiento.
+Secundarios
+1. El conocimiento compartido no es el indicado.
+2. El conocimiento obtenido no es el indicado.
+3. El conocimiento buscado no existe.
+Excepcionales
+1. El conocimiento contiene información que vulnera las leyes.
+Autor
+Joel Pérez
+Cas_03 – Generar debates. A partir del conocimiento compartido, los usuarios opinan y dialogan entre sí.
+Estas discusiones son, a su vez, la materia prima de la que salen tanto las temáticas especializadas (Cas_05)
+como los intereses comunes que reagrupan a las personas (Cas_06).
+Nombre: Generar debates
+ID: Cas_03
+Actores
+Usuarios del sistema
+Descripción
+Discutir sobre los conocimientos compartidos.
+Precondición
+Haber compartido conocimiento.
+Poscondición
+Se sectorizan las discusiones.
+Escenarios
+Primario
+1. Una persona da una opinión sobre el conocimiento compartido.
+2. Otras personas dialogan sobre la opinión y dan sus puntos de vista.
+Secundarios
+1. No se genera discusión sobre el tema tratado.
+2. La discusión trata otros temas ajenos.
+Excepcionales
+1. Usan el espacio para dialogar sobre cómo vulnerar la ley.
+Autor
+Joel Pérez
+4
+
+
+===== PAGE 5 =====
+Cas_04 – Preservar el conocimiento. Todo lo compartido u obtenido en Cas_02 queda almacenado en una
+biblioteca personal del usuario, de modo que no se pierde al terminar la sesión o el debate.
+Nombre: Preservar el conocimiento
+ID: Cas_04
+Actores
+Usuarios del sistema
+Descripción
+El conocimiento queda guardado.
+Precondición
+Poseer conocimiento.
+Poscondición
+Tener una biblioteca de conocimiento a nombre de la persona.
+Escenarios
+Primario
+1. Al compartir y obtener conocimiento se aloja dicho conocimiento en la biblioteca de
+cada persona.
+Secundarios
+1. El conocimiento se pierde.
+Excepcionales
+1. Por fallas físicas el conocimiento registrado es eliminado.
+Autor
+Joel Pérez
+Cas_05 – Tratar temáticas especializadas. El conocimiento compartido se organiza por tema, lo que facilita
+que otros usuarios lo encuentren después y que el debate se mantenga enfocado.
+Nombre: Tratar temáticas especializadas
+ID: Cas_05
+Actores
+Usuarios del sistema
+Descripción
+Se categoriza el conocimiento.
+Precondición
+Haber compartido conocimiento.
+Poscondición
+El conocimiento es organizado.
+Escenarios
+Primario
+1. Se comparte conocimiento.
+2. El conocimiento tiene temas particulares.
+3. El conocimiento se categoriza en una temática especializada.
+Secundarios
+1. El conocimiento es categorizado de manera errónea.
+Excepcionales
+No se identificaron escenarios en esta categoría.
+Autor
+Joel Pérez
+Cas_06 – Descubrir intereses comunes. Cierra el ciclo de esta sección: cuando varios usuarios coinciden en
+un tema dentro de un debate, el sistema les permite formar un nuevo espacio de diálogo, lo que puede derivar
+en una nueva comunidad (retomando Cas_01).
+Nombre: Descubrir intereses comunes
+ID: Cas_06
+Actores
+Usuarios del sistema
+Descripción
+En la discusión o debate se generan sub comunidades de intereses comunes.
+Precondición
+Haber estado en un espacio de diálogo.
+Poscondición
+Creación de espacios con intereses comunes.
+Escenarios
+Primario
+1. Habita un espacio de diálogo.
+2. Varias personas tienen intereses comunes.
+3. Dichas personas deciden crear su espacio de diálogo.
+Secundarios
+1. El interés común es ambiguo y se divide.
+2. No existen intereses comunes.
+Excepcionales
+1. Los intereses comunes tratan temas fuera de la ley.
+Autor
+Joel Pérez
+3. Interacción P2P Cliente-Servidor
+5
+
+
+===== PAGE 6 =====
+Este diagrama muestra cómo el cliente se comunica con el servidor para iniciar sesión, informar su presencia,
+buscar archivos, participar en salas de chat y publicar o consultar reseñas. El sistema de archivos local interviene
+al indexar las carpetas compartidas.
+Figura 3: Diagrama de casos de uso de la interacción P2P Cliente-Servidor
+6
+
+
+===== PAGE 7 =====
+Tabla 3: Casos de uso de la interacción Cliente-Servidor
+N.º
+Caso de uso
+7
+Iniciar sesión
+8
+Actualizar presencia
+9
+Configurar carpetas
+10
+Indexar archivos
+11
+Buscar archivos
+12
+Transmitir búsqueda
+13
+Unirse a salas de chat
+14
+Publicar reseña de archivo
+15
+Consultar reseñas
+7
+
+
+===== PAGE 8 =====
+Cas_07 – Iniciar sesión. Es el primer paso para participar en la red P2P: el cliente se autentica ante el servidor,
+que es quien coordina la presencia y la búsqueda entre pares.
+Nombre: Iniciar sesión
+ID: Cas_07
+Actores
+Cliente, Servidor
+Descripción
+Permite al cliente autenticarse ante el servidor para acceder a la red P2P.
+Precondición
+El cliente tiene la aplicación abierta y una cuenta registrada.
+Poscondición
+El cliente tiene una sesión activa en el servidor.
+Escenarios
+Primario
+1. El cliente ingresa sus credenciales.
+2. El cliente envía la solicitud de inicio de sesión.
+3. El servidor valida las credenciales.
+4. El servidor crea la sesión y confirma al cliente.
+Secundarios
+1. (Paso 3) Las credenciales son incorrectas: el servidor rechaza la solicitud, informa el
+error y el cliente puede reintentar.
+2. (Paso 3) Ya existe una sesión activa con esa cuenta: el servidor informa y ofrece cerrar
+la sesión anterior.
+Excepcionales
+1. (Paso 2) El servidor no está disponible: el sistema muestra un error de conexión y
+permite reintentar más tarde.
+2. (Paso 3) La cuenta está bloqueada por intentos fallidos: el servidor niega el acceso e
+indica cómo recuperarla.
+Autor
+Joel Pérez
+Cas_08 – Actualizar presencia. Una vez el cliente tiene sesión activa, informa periódicamente al servidor su
+disponibilidad, para que otros clientes sepan si pueden contactarlo.
+Nombre: Actualizar presencia
+ID: Cas_08
+Actores
+Cliente, Servidor
+Descripción
+Permite informar al servidor el estado de disponibilidad del cliente (conectado, ausente
+o desconectado) para que otros usuarios lo vean.
+Precondición
+El cliente tiene una sesión activa.
+Poscondición
+El servidor tiene registrado el estado actual del cliente.
+Escenarios
+Primario
+1. El cliente cambia su estado o el sistema detecta un cambio de actividad.
+2. El sistema envía el nuevo estado al servidor.
+3. El servidor actualiza el registro de presencia del cliente.
+4. El servidor confirma la actualización.
+Secundarios
+1. (Paso 1) El cliente permanece inactivo un tiempo: el sistema lo cambia automática-
+mente a ausente.
+2. (Paso 3) El estado enviado es igual al registrado: el servidor lo ignora y no genera
+cambios.
+Excepcionales
+1. (Paso 2) Se pierde la conexión: el servidor, al no recibir señal del cliente en un tiempo
+definido, lo marca como desconectado.
+Autor
+Joel Pérez
+Cas_09 – Configurar carpetas. El cliente elige qué carpetas locales compartir con la red. Esta selección dispara
+la indexación de sus archivos (Cas_10), que es lo que los hace búscables por otros usuarios.
+8
+
+
+===== PAGE 9 =====
+Nombre: Configurar carpetas
+ID: Cas_09
+Actores
+Cliente
+Descripción
+Permite al cliente elegir las carpetas locales que compartirá con la red.
+Precondición
+El cliente tiene la aplicación abierta.
+Poscondición
+Las carpetas elegidas quedan guardadas en la configuración y se envían a indexar.
+Escenarios
+Primario
+1. El cliente abre la sección de configuración de carpetas.
+2. El cliente selecciona las carpetas que desea compartir.
+3. El cliente confirma la selección.
+4. El sistema guarda la configuración.
+5. El sistema inicia la indexación de los archivos (Cas_10).
+Secundarios
+1. (Paso 2) El cliente quita una carpeta ya compartida: el sistema deja de compartirla
+y elimina sus archivos del índice.
+2. (Paso 2) La carpeta ya estaba configurada: el sistema informa y no la duplica.
+Excepcionales
+1. (Paso 4) El sistema no tiene permiso de lectura sobre la carpeta: informa el error y
+no la agrega.
+2. (Paso 4) La carpeta ya no existe: el sistema informa y la descarta de la configuración.
+Autor
+Joel Pérez
+Cas_10 – Indexar archivos. El sistema recorre las carpetas compartidas y construye un índice de sus archivos,
+que es la base sobre la que luego se resuelven las búsquedas (Cas_11 y Cas_12).
+Nombre: Indexar archivos
+ID: Cas_10
+Actores
+Sistema de Archivos Local
+Descripción
+Recorre las carpetas configuradas y genera un índice de los archivos (nombre, tamaño,
+tipo) para poder buscarlos.
+Precondición
+Hay al menos una carpeta configurada para compartir.
+Poscondición
+Existe un índice actualizado con los archivos de las carpetas compartidas.
+Escenarios
+Primario
+1. El sistema solicita al sistema de archivos local el listado de archivos de las carpetas
+configuradas.
+2. El sistema de archivos local devuelve la información de cada archivo.
+3. El sistema construye o actualiza el índice.
+4. El sistema informa que la indexación terminó.
+Secundarios
+1. (Paso 2) La carpeta está vacía: el índice queda sin entradas para esa carpeta y el
+sistema lo informa.
+2. (Paso 3) Los archivos ya estaban indexados y no cambiaron: el sistema los omite.
+Excepcionales
+1. (Paso 2) Un archivo no se puede leer: el sistema lo omite y lo registra en un aviso.
+2. (Paso 2) El sistema de archivos no responde: el sistema cancela la indexación y la
+reintenta más tarde.
+Autor
+Joel Pérez
+Cas_11 – Buscar archivos. El cliente escribe un término de búsqueda; el sistema lo envía al servidor para que
+lo distribuya (Cas_12) y luego muestra los resultados.
+9
+
+
+===== PAGE 10 =====
+Nombre: Buscar archivos
+ID: Cas_11
+Actores
+Cliente
+Descripción
+Permite al cliente buscar archivos compartidos por otros clientes de la red.
+Precondición
+El cliente tiene una sesión activa.
+Poscondición
+El cliente visualiza la lista de archivos que coinciden con su búsqueda.
+Escenarios
+Primario
+1. El cliente ingresa el término de búsqueda.
+2. El cliente solicita la búsqueda.
+3. El sistema transmite la consulta al servidor (Cas_12).
+4. El sistema recibe los resultados.
+5. El sistema muestra la lista de archivos encontrados.
+Secundarios
+1. (Paso 4) No hay resultados: el sistema informa y sugiere modificar el término.
+2. (Paso 2) El término está vacío: el sistema pide ingresar un texto antes de buscar.
+Excepcionales
+1. (Paso 3) El servidor no responde: el sistema muestra un error y permite reintentar.
+2. (Paso 3) La sesión expiró: el sistema pide iniciar sesión nuevamente.
+Autor
+Joel Pérez
+Cas_12 – Transmitir búsqueda. El servidor reenvía la consulta a los clientes conectados y consolida sus
+respuestas, devolviéndolas al cliente que inició la búsqueda.
+Nombre: Transmitir búsqueda
+ID: Cas_12
+Actores
+Servidor
+Descripción
+Envía la consulta del cliente al servidor para que la distribuya entre los clientes conectados
+y devuelva los resultados.
+Precondición
+El cliente solicitó una búsqueda con sesión activa.
+Poscondición
+La consulta fue distribuida y los resultados consolidados fueron devueltos al cliente.
+Escenarios
+Primario
+1. El sistema envía la consulta al servidor.
+2. El servidor reenvía la consulta a los clientes conectados.
+3. Los clientes responden con los archivos que coinciden.
+4. El servidor consolida las respuestas.
+5. El servidor devuelve los resultados al cliente que buscó.
+Secundarios
+1. (Paso 3) Ningún cliente responde con coincidencias: el servidor devuelve una lista
+vacía.
+2. (Paso 3) Se agota el tiempo de espera: el servidor devuelve los resultados parciales
+recibidos hasta ese momento.
+Excepcionales
+1. (Paso 1) El servidor es inaccesible: el sistema informa la falla y cancela la búsqueda.
+Autor
+Joel Pérez
+Cas_13 – Unirse a salas de chat. Además de compartir archivos, los clientes pueden comunicarse en salas
+grupales, lo que le da al sistema una dimensión social adicional a la simple transferencia de datos.
+10
+
+
+===== PAGE 11 =====
+Nombre: Unirse a salas de chat
+ID: Cas_13
+Actores
+Cliente
+Descripción
+Permite al cliente entrar a una sala de chat para comunicarse con otros usuarios.
+Precondición
+El cliente tiene una sesión activa.
+Poscondición
+El cliente es participante de la sala y puede enviar y recibir mensajes.
+Escenarios
+Primario
+1. El cliente abre la lista de salas disponibles.
+2. El cliente selecciona una sala.
+3. El cliente solicita unirse.
+4. El sistema agrega al cliente a la sala.
+5. El sistema muestra la sala con sus participantes.
+Secundarios
+1. (Paso 3) La sala es privada: el sistema pide una contraseña o invitación antes de
+permitir el acceso.
+2. (Paso 3) El cliente ya está en la sala: el sistema simplemente la abre.
+Excepcionales
+1. (Paso 4) La sala está llena o ya no existe: el sistema informa y actualiza la lista de
+salas.
+2. (Paso 4) Se pierde la conexión: el sistema informa el error y permite reintentar.
+Autor
+Joel Pérez
+Cas_14 – Publicar reseña de archivo. Sobre un archivo ya conocido en la red, un cliente puede dejar una
+opinión que quedará almacenada en el servidor y visible para otros.
+Nombre: Publicar reseña de archivo
+ID: Cas_14
+Actores
+Cliente, Servidor
+Descripción
+Permite al cliente escribir una reseña sobre un archivo para que otros usuarios la consul-
+ten.
+Precondición
+El cliente tiene una sesión activa y ha seleccionado un archivo de la red.
+Poscondición
+La reseña queda almacenada en el servidor y asociada al archivo.
+Escenarios
+Primario
+1. El cliente selecciona un archivo.
+2. El cliente escribe la reseña (texto y valoración).
+3. El cliente envía la reseña.
+4. El servidor valida y almacena la reseña.
+5. El servidor confirma la publicación y la reseña queda visible.
+Secundarios
+1. (Paso 3) El cliente ya reseñó ese archivo: el sistema le ofrece editar su reseña anterior.
+2. (Paso 3) La reseña está vacía: el sistema pide completarla antes de enviarla.
+Excepcionales
+1. (Paso 4) El contenido es inapropiado: el servidor rechaza la reseña e informa el motivo.
+2. (Paso 4) El servidor no está disponible: el sistema informa el error y conserva el texto
+para reenviarlo después.
+Autor
+Joel Pérez
+Cas_15 – Consultar reseñas. Cierra la vista Cliente-Servidor: antes de descargar un archivo, un cliente puede
+revisar lo que otros opinaron de él, lo que sirve de puente hacia la descarga efectiva en la vista Cliente-Cliente
+(Cas_17).
+11
+
+
+===== PAGE 12 =====
+Nombre: Consultar reseñas
+ID: Cas_15
+Actores
+Cliente, Servidor
+Descripción
+Permite al cliente ver las reseñas que otros usuarios han publicado sobre un archivo.
+Precondición
+El cliente tiene una sesión activa y ha seleccionado un archivo de la red.
+Poscondición
+El cliente visualiza las reseñas del archivo.
+Escenarios
+Primario
+1. El cliente selecciona un archivo.
+2. El cliente solicita ver sus reseñas.
+3. El sistema pide las reseñas al servidor.
+4. El servidor devuelve las reseñas asociadas al archivo.
+5. El sistema las muestra al cliente.
+Secundarios
+1. (Paso 4) El archivo no tiene reseñas: el sistema lo informa e invita a publicar la
+primera.
+2. (Paso 5) Hay muchas reseñas: el sistema las muestra por páginas u ordenadas por
+fecha.
+Excepcionales
+1. (Paso 3) El servidor no responde: el sistema muestra un error y permite reintentar.
+2. (Paso 3) El archivo ya no está disponible en la red: el sistema informa que no se
+pueden consultar sus reseñas.
+Autor
+Joel Pérez
+4. Interacción P2P Cliente-Cliente
+Este diagrama describe la comunicación directa entre el usuario local y el usuario remoto: exploración de
+archivos, descarga con negociación de conexión, cola de espera, recuperación de descargas interrumpidas, chat
+privado y reseñas.
+12
+
+
+===== PAGE 13 =====
+Figura 4: Diagrama de casos de uso de la interacción P2P Cliente-Cliente
+Tabla 4: Casos de uso de la interacción Cliente-Cliente
+N.º
+Caso de uso
+16
+Explorar archivos de usuario
+17
+Descargar archivo
+18
+Añadir a cola de espera
+19
+Negociar conexión handshake
+20
+Ejecutar NAT traversal
+21
+Procesar petición de subida
+22
+Reanudar descarga rota
+23
+Chat privado
+24
+Reseñar archivo
+13
+
+
+===== PAGE 14 =====
+Cas_16 – Explorar archivos de usuario. Ya identificado un par remoto (por ejemplo, tras una búsqueda en
+Cas_11), el cliente local puede ver directamente qué archivos comparte, sin pasar por el servidor.
+Nombre: Explorar archivos de usuario
+ID: Cas_16
+Actores
+Local, Remoto
+Descripción
+Permite al usuario local ver la lista de archivos que comparte un usuario remoto.
+Precondición
+El usuario local está conectado a la red y ha seleccionado a un usuario remoto.
+Poscondición
+El usuario local visualiza la lista de archivos compartidos por el usuario remoto.
+Escenarios
+Primario
+1. El usuario local selecciona a un usuario remoto.
+2. El usuario local solicita ver sus archivos.
+3. El sistema envía la solicitud al usuario remoto.
+4. El usuario remoto devuelve el listado de sus archivos compartidos.
+5. El sistema muestra el listado al usuario local.
+Secundarios
+1. (Paso 4) El usuario remoto no comparte archivos: el sistema informa que la lista está
+vacía.
+2. (Paso 4) El usuario remoto comparte solo algunas carpetas: el sistema muestra úni-
+camente las visibles.
+Excepcionales
+1. (Paso 3) El usuario remoto se desconectó: el sistema informa que no está disponible.
+2. (Paso 4) El usuario remoto rechaza la solicitud: el sistema informa que no se puede
+explorar sus archivos.
+Autor
+Joel Pérez
+Cas_17 – Descargar archivo. Es el caso central de esta sección: el cliente local obtiene un archivo del remoto.
+Para lograrlo depende de negociar la conexión (Cas_19) y puede apoyarse en la cola de espera (Cas_18) o en la
+reanudación de descargas (Cas_22) si algo falla.
+Nombre: Descargar archivo
+ID: Cas_17
+Actores
+Local, Remoto
+Descripción
+Permite al usuario local descargar un archivo que comparte un usuario remoto.
+Precondición
+El usuario local seleccionó un archivo de un usuario remoto disponible.
+Poscondición
+El archivo completo queda guardado en el equipo local.
+Escenarios
+Primario
+1. El usuario local selecciona el archivo y solicita la descarga.
+2. El sistema negocia la conexión con el usuario remoto (Cas_19).
+3. El sistema solicita el archivo al usuario remoto.
+4. El usuario remoto envía el archivo por partes.
+5. El sistema recibe las partes y verifica su integridad.
+6. El sistema guarda el archivo y notifica que la descarga terminó.
+Secundarios
+1. (Paso 3) El usuario remoto no tiene slots de subida libres: el sistema agrega la descarga
+a la cola de espera (Cas_18).
+2. (Paso 4) La conexión se cae durante la descarga: el sistema intenta continuarla
+(Cas_22).
+3. (Paso 6) El archivo ya existe en el equipo local: el sistema pregunta si desea reem-
+plazarlo o conservar ambos.
+Excepcionales
+1. (Paso 2) El usuario remoto no está disponible: el sistema informa y cancela la des-
+carga.
+2. (Paso 5) La verificación de integridad falla: el sistema descarta las partes dañadas y
+ofrece reintentar.
+3. (Paso 6) No hay espacio suficiente en disco: el sistema informa y cancela el guardado.
+Autor
+Joel Pérez
+Cas_18 – Añadir a cola de espera. Cuando el remoto no tiene slots de subida libres, la descarga no se cancela:
+queda en espera hasta que se libere un slot y pueda retomarse.
+14
+
+
+===== PAGE 15 =====
+Nombre: Añadir a cola de espera
+ID: Cas_18
+Actores
+Ninguno directo (extiende Cas_17)
+Descripción
+Coloca una descarga en una cola cuando el usuario remoto no tiene slots de subida libres.
+Precondición
+El usuario local solicitó una descarga y el usuario remoto no tiene slots disponibles.
+Poscondición
+La descarga queda registrada en la cola con una posición asignada.
+Escenarios
+Primario
+1. El sistema recibe del usuario remoto la respuesta de que no hay slots disponibles.
+2. El sistema registra la descarga en la cola de espera.
+3. El sistema informa al usuario local su posición en la cola.
+4. Cuando se libera un slot, el sistema retoma la descarga.
+Secundarios
+1. (Paso 3) El usuario local cancela mientras espera: el sistema la quita de la cola.
+2. (Paso 4) Otros usuarios tienen prioridad: el sistema mantiene la espera y actualiza la
+posición.
+Excepcionales
+1. (Paso 4) El usuario remoto se desconecta mientras se espera: el sistema conserva la
+descarga en la cola y la marca como pendiente.
+2. (Paso 2) La cola está llena: el sistema informa y sugiere intentar más tarde.
+Autor
+Joel Pérez
+Cas_19 – Negociar conexión handshake. Antes de transferir cualquier dato, dos clientes intercambian los
+parámetros necesarios para establecer la conexión. Si un router bloquea el intento, se recurre al atravesado de
+NAT (Cas_20).
+Nombre: Negociar conexión handshake
+ID: Cas_19
+Actores
+Ninguno directo (incluido en Cas_17 y Cas_21)
+Descripción
+Establece la conexión entre dos clientes intercambiando los datos necesarios antes de
+transferir un archivo.
+Precondición
+Un cliente necesita comunicarse con otro y conoce su dirección.
+Poscondición
+Queda establecida y validada una conexión entre ambos clientes.
+Escenarios
+Primario
+1. El cliente que inicia envía una solicitud de conexión con su identificación y capacida-
+des.
+2. El otro cliente valida la solicitud y responde aceptándola.
+3. Ambos acuerdan los parámetros de la transferencia.
+4. El sistema confirma que la conexión está establecida.
+Secundarios
+1. (Paso 2) El router bloquea la conexión: el sistema aplica el atravesado de NAT
+(Cas_20).
+2. (Paso 3) Los clientes usan versiones distintas: el sistema acuerda los parámetros que
+ambos soportan.
+Excepcionales
+1. (Paso 2) El otro cliente rechaza la conexión: el sistema informa y termina la nego-
+ciación.
+2. (Paso 2) Se agota el tiempo de espera: el sistema informa y permite reintentar.
+Autor
+Joel Pérez
+Cas_20 – Ejecutar NAT traversal. Permite completar la negociación de conexión cuando un router bloquea
+las conexiones entrantes, por ejemplo coordinando un intento simultáneo entre ambos clientes.
+15
+
+
+===== PAGE 16 =====
+Nombre: Ejecutar NAT traversal
+ID: Cas_20
+Actores
+Ninguno directo (extiende Cas_19)
+Descripción
+Permite establecer la conexión entre dos clientes aun cuando un router bloquea las
+conexiones entrantes.
+Precondición
+El handshake no pudo completarse porque el router bloquea la conexión.
+Poscondición
+Se establece un canal de comunicación entre los clientes, o se informa que no fue posible.
+Escenarios
+Primario
+1. El sistema detecta que el router bloquea la conexión.
+2. El sistema determina su dirección y puerto públicos.
+3. El sistema coordina con el otro cliente un intento de conexión simultáneo.
+4. Se establece el canal de comunicación.
+5. El sistema retoma la negociación del handshake.
+Secundarios
+1. (Paso 3) El intento directo falla: el sistema usa un nodo intermediario si hay uno
+disponible.
+2. (Paso 2) El router permite abrir un puerto automáticamente: el sistema lo abre y
+omite el intento simultáneo.
+Excepcionales
+1. (Paso 3) No es posible atravesar el NAT ni hay intermediario: el sistema informa que
+no se puede conectar.
+2. (Paso 3) Se agota el tiempo de espera: el sistema cancela el intento y permite rein-
+tentar.
+Autor
+Joel Pérez
+Cas_21 – Procesar petición de subida. Es la contraparte de Cas_17 vista desde quién comparte el archivo:
+atiende la solicitud del otro cliente, verifica que haya un slot libre y le entrega los datos.
+Nombre: Procesar petición de subida
+ID: Cas_21
+Actores
+Remoto, Sistema de Archivos Local
+Descripción
+Atiende la solicitud de otro cliente que quiere descargar un archivo compartido desde
+este equipo.
+Precondición
+Un usuario remoto solicita un archivo que está en una carpeta compartida.
+Poscondición
+El archivo solicitado fue enviado al usuario remoto y el slot de subida quedó liberado.
+Escenarios
+Primario
+1. El usuario remoto envía la petición del archivo.
+2. El sistema negocia la conexión (Cas_19).
+3. El sistema verifica que el archivo esté compartido y que haya un slot libre.
+4. El sistema solicita al sistema de archivos local la lectura del archivo.
+5. El sistema de archivos local entrega los datos.
+6. El sistema envía los datos al usuario remoto.
+7. El sistema confirma el fin de la transferencia y libera el slot.
+Secundarios
+1. (Paso 3) No hay slots libres: el sistema informa al usuario remoto para que espere en
+cola.
+2. (Paso 6) El usuario remoto pide solo una parte del archivo: el sistema envía única-
+mente esa parte.
+Excepcionales
+1. (Paso 4) El archivo fue movido o eliminado: el sistema informa al usuario remoto y
+actualiza el índice.
+2. (Paso 4) El sistema no tiene permiso de lectura: informa el error y cancela la subida.
+3. (Paso 6) La conexión se cae: el sistema cancela la subida y libera el slot.
+Autor
+Joel Pérez
+Cas_22 – Reanudar descarga rota. Si la conexión se cae durante una descarga, el sistema no empieza de
+nuevo: retoma la transferencia desde el punto donde se quedó.
+16
+
+
+===== PAGE 17 =====
+Nombre: Reanudar descarga rota
+ID: Cas_22
+Actores
+Ninguno directo (extiende Cas_17)
+Descripción
+Permite continuar una descarga interrumpida desde el punto donde quedó, sin empezar
+de nuevo.
+Precondición
+Una descarga se interrumpió y quedan partes ya guardadas.
+Poscondición
+La descarga continúa y el archivo queda completo.
+Escenarios
+Primario
+1. El sistema detecta que se perdió la conexión.
+2. El sistema conserva las partes descargadas y registra el progreso.
+3. El sistema intenta reconectar con el usuario remoto.
+4. Al reconectar, el sistema solicita solo las partes que faltan.
+5. El sistema recibe las partes restantes y completa el archivo.
+Secundarios
+1. (Paso 3) La reconexión falla tras varios intentos: el sistema pausa la descarga y
+permite al usuario local reanudarla manualmente.
+2. (Paso 4) El archivo del usuario remoto cambió: el sistema avisa y reinicia la descarga
+desde cero.
+Excepcionales
+1. (Paso 4) El usuario remoto ya no comparte el archivo: el sistema informa y cancela
+la descarga.
+2. (Paso 4) Las partes guardadas están dañadas o fueron eliminadas: el sistema las
+descarta y reinicia la descarga.
+Autor
+Joel Pérez
+Cas_23 – Chat privado. Fuera de las salas grupales (Cas_13), dos clientes pueden conversar de forma directa,
+lo que suele usarse para coordinar el intercambio de archivos.
+Nombre: Chat privado
+ID: Cas_23
+Actores
+Local, Remoto
+Descripción
+Permite conversar de forma directa y privada entre dos usuarios.
+Precondición
+El usuario local está conectado a la red y el usuario remoto es alcanzable.
+Poscondición
+Los mensajes intercambiados quedan entregados y visibles en la conversación.
+Escenarios
+Primario
+1. El usuario local selecciona a un usuario remoto.
+2. El usuario local abre un chat privado con él.
+3. El usuario local escribe y envía un mensaje.
+4. El sistema entrega el mensaje al usuario remoto.
+5. El usuario remoto lee el mensaje y responde.
+6. El sistema muestra la respuesta en la conversación.
+Secundarios
+1. (Paso 4) El usuario remoto está desconectado: el sistema informa y deja el mensaje
+pendiente hasta que se reconecte.
+2. (Paso 3) El mensaje está vacío: el sistema no lo envía.
+Excepcionales
+1. (Paso 4) El usuario remoto bloqueó al usuario local: el sistema no entrega el mensaje
+e informa que no se pudo enviar.
+2. (Paso 4) Se pierde la conexión: el sistema informa el error y permite reenviar.
+Autor
+Joel Pérez
+Cas_24 – Reseñar archivo. Cierra el sistema: tras descargar un archivo, el usuario local puede dejar su propia
+opinión sobre él, alimentándose del mismo ciclo de valoración que en Cas_14, pero ahora desde la perspectiva
+de quien descarga.
+17
+
+
+===== PAGE 18 =====
+Nombre: Reseñar archivo
+ID: Cas_24
+Actores
+Local
+Descripción
+Permite al usuario local escribir una reseña y una valoración sobre un archivo.
+Precondición
+El usuario local ha seleccionado un archivo, por ejemplo uno que descargó.
+Poscondición
+La reseña queda guardada y asociada al archivo.
+Escenarios
+Primario
+1. El usuario local selecciona un archivo.
+2. El usuario local elige la opción de reseñar.
+3. El usuario local escribe el texto y la valoración.
+4. El usuario local confirma el envío.
+5. El sistema guarda la reseña asociada al archivo.
+6. El sistema confirma que la reseña fue publicada.
+Secundarios
+1. (Paso 4) El usuario ya reseñó ese archivo: el sistema ofrece editar su reseña anterior.
+2. (Paso 4) La reseña está vacía: el sistema pide completarla antes de enviarla.
+Excepcionales
+1. (Paso 5) Falla el guardado: el sistema informa el error y conserva el texto para
+reintentar.
+2. (Paso 3) El archivo ya no está disponible: el sistema informa que no se puede reseñar.
+Autor
+Joel Pérez
+18
+
+
+===== PAGE 19 =====
+5. Diagramas de secuencia
+Los siguientes diagramas de secuencia detallan el intercambio de mensajes entre los actores y los componen-
+tes internos del sistema (UI, lógica de negocio, gestores y base de datos) para cada uno de los casos de uso
+especificados anteriormente.
+19
+
+
+===== PAGE 20 =====
+Figura 5: Caso 01: Crear comunidad. El usuario solicita crear una comunidad; el sistema verifica el historial y el cumplimiento
+legal antes de crear el perfil y habilitar los flujos de compartir conocimiento, obtener información y generar debate.
+20
+
+
+===== PAGE 21 =====
+Figura 6: Caso 02: Compartir conocimiento. El actor envía información desde la GUI, la lógica de negocio la persiste en
+la base de datos y luego permite buscarla y desplegarla al usuario.
+21
+
+
+===== PAGE 22 =====
+Figura 7: Caso 03: Generar debates. El actor publica y responde opiniones; cada aporte se almacena en la base de datos,
+se sectoriza la discusión y se muestra el debate actualizado.
+22
+
+
+===== PAGE 23 =====
+Figura 8: Caso 04: Preservar el conocimiento. El conocimiento se aloja en una biblioteca personal: la lógica de negocio lo
+guarda, lo asocia al usuario y lo despliega cuando lo consulta.
+23
+
+
+===== PAGE 24 =====
+Figura 9: Caso 05: Tratar temáticas especializadas. El conocimiento se comparte con temáticas, se categoriza, se guarda
+ya clasificado y se muestra organizado al usuario.
+24
+
+
+===== PAGE 25 =====
+Figura 10: Caso 06: Descubrir intereses comunes. A partir de las interacciones en un espacio de diálogo, el sistema identifica
+intereses comunes y crea una subcomunidad vinculada al usuario.
+25
+
+
+===== PAGE 26 =====
+Figura 11: Caso 07: Iniciar sesión. El actor ingresa sus credenciales, la lógica de negocio las valida contra la base de datos
+y crea una sesión activa confirmada en la interfaz.
+26
+
+
+===== PAGE 27 =====
+Figura 12: Caso 08: Actualizar presencia. El actor cambia su estado de presencia, el sistema actualiza el registro corres-
+pondiente en la base de datos y confirma el nuevo estado en la UI.
+27
+
+
+===== PAGE 28 =====
+Figura 13: Caso 09: Configurar carpetas. El actor selecciona y confirma carpetas; el sistema guarda la configuración, la
+persiste y dispara la indexación de archivos.
+28
+
+
+===== PAGE 29 =====
+Figura 14: Caso 10: Indexar archivos. El sistema solicita el listado de archivos, construye o actualiza el índice y lo guarda
+en la base de datos, notificando al usuario el fin de la indexación.
+29
+
+
+===== PAGE 30 =====
+Figura 15: Caso 11: Buscar archivos. El actor ingresa un término, el sistema transmite la búsqueda a la lógica de negocio,
+consulta la base de datos y despliega la lista de archivos coincidentes.
+30
+
+
+===== PAGE 31 =====
+Figura 16: Caso 12: Transmitir búsqueda. El sistema envía la consulta al servidor, este distribuye la búsqueda entre los
+clientes, consolida las respuestas y las devuelve al solicitante.
+31
+
+
+===== PAGE 32 =====
+Figura 17: Caso 13: Unirse a salas de chat. El actor consulta las salas disponibles, elige una, el sistema registra su
+participación y muestra la sala con sus integrantes.
+Figura 18: Caso 14: Publicar reseña de archivo. El actor escribe una reseña con texto y valoración; la lógica de negocio la
+valida, la guarda asociada al archivo y confirma la publicación.
+32
+
+
+===== PAGE 33 =====
+Figura 19: Caso 15: Consultar reseñas. El actor solicita las reseñas de un archivo, el sistema las consulta en la base de
+datos y las despliega en la interfaz.
+Figura 20: Caso 16: Explorar archivos de usuario. El actor elige un usuario remoto, el sistema consulta sus archivos
+compartidos y muestra el listado recibido sin pasar por el servidor central.
+33
+
+
+===== PAGE 34 =====
+Figura 21: Caso 17: Descargar archivo. Flujo completo de descarga P2P: se valida el espacio en disco, se negocia la
+conexión, se solicitan las partes, se verifica la integridad y se ensambla el archivo final.
+34
+
+
+===== PAGE 35 =====
+Figura 22: Caso 18: Añadir a cola de espera. Cuando el remoto no tiene slots libres, la descarga se registra en una cola
+con posición asignada y se retoma automáticamente al liberarse un slot.
+35
+
+
+===== PAGE 36 =====
+Figura 23: Caso 19: Negociar conexión handshake. Los clientes intercambian solicitud, validación y parámetros compatibles;
+si hay bloqueo por NAT se invoca el caso de NAT traversal antes de confirmar la conexión.
+36
+
+
+===== PAGE 37 =====
+Figura 24: Caso 20: Ejecutar NAT traversal. Ante un NAT estricto, el sistema determina su dirección pública, coordina
+un intento simultáneo con el peer y usa un nodo intermediario si el intento directo falla.
+37
+
+
+===== PAGE 38 =====
+Figura 25: Caso 21: Procesar petición de subida. El gestor de subidas verifica slots y estado del archivo, lee los datos del
+sistema de archivos local y los envía al peer remoto, liberando el slot al finalizar.
+38
+
+
+===== PAGE 39 =====
+Figura 26: Caso 22: Reanudar descarga rota. Tras una caída de conexión, el sistema verifica las partes guardadas, reintenta
+reconectar y solicita solo las partes faltantes para completar el archivo.
+39
+
+
+===== PAGE 40 =====
+Figura 27: Caso 23: Chat privado. El actor envía un mensaje; el gestor de chat verifica el estado del remoto, lo entrega si
+está disponible o lo deja pendiente, y muestra la respuesta en la conversación.
+40
+
+
+===== PAGE 41 =====
+Figura 28: Caso 24: Reseñar archivo. Tras seleccionar un archivo, el actor escribe y confirma una reseña; el gestor la valida,
+la envía al servidor central y confirma la publicación en la interfaz.
+41
+
+
+===== PAGE 42 =====
+6. Diagramas de comunicación
+Los siguientes diagramas de comunicación son la versión simplificada, derivada de los diagramas de secuencia
+de la sección anterior, pero sin lifelines ni bloques de control: solo los objetos involucrados, el enlace entre ellos
+y los mensajes del flujo primario, numerados en el orden en que ocurren. Los flujos secundarios y excepcionales,
+al igual que los pasos internos de la GUI, la lógica de negocio y la base de datos, se omiten aquí para mantener
+la lectura simple; esos detalles siguen disponibles en la sección 5 y en la tabla de cada caso de uso.
+Usuario
+Sistema
+1: crear comunidad()
+2: verificar historial()
+3: comunidad creada()
+4: compartir y debatir()
+Figura 29: Cas_01 – Crear comunidad. Diagrama de comunicación simplificado (flujo primario), derivado de la Figura 5.
+Usuario
+Sistema
+1: presentar conocimiento() 2: guardar conocimiento()
+3: buscar conocimiento()
+4: mostrar conocimiento()
+Figura 30: Cas_02 – Compartir conocimiento. Diagrama de comunicación simplificado (flujo primario), derivado de la
+Figura 6.
+Usuario
+Sistema
+1: publicar opinión()
+2: sectorizar discusión()
+3: responder opinión()
+4: debate actualizado()
+Figura 31: Cas_03 – Generar debates. Diagrama de comunicación simplificado (flujo primario), derivado de la Figura 7.
+Usuario
+Sistema
+1: compartir/obtener conocimiento()
+2: guardar en biblioteca()
+3: conocimiento preservado()
+Figura 32: Cas_04 – Preservar el conocimiento. Diagrama de comunicación simplificado (flujo primario), derivado de la
+Figura 8.
+42
+
+
+===== PAGE 43 =====
+Usuario
+Sistema
+1: compartir conocimiento()
+2: categorizar temática()
+3: conocimiento organizado()
+Figura 33: Cas_05 – Tratar temáticas especializadas. Diagrama de comunicación simplificado (flujo primario), derivado
+de la Figura 9.
+Usuario
+Sistema
+1: participar en debate()
+2: identificar intereses()
+3: espacio creado()
+Figura 34: Cas_06 – Descubrir intereses comunes. Diagrama de comunicación simplificado (flujo primario), derivado de
+la Figura 10.
+Cliente
+Servidor
+1: enviar credenciales()
+2: validar credenciales()
+3: sesión confirmada()
+Figura 35: Cas_07 – Iniciar sesión. Diagrama de comunicación simplificado (flujo primario), derivado de la Figura 11.
+Cliente
+Servidor
+1: enviar estado()
+2: actualizar registro()
+3: confirmar actualización()
+Figura 36: Cas_08 – Actualizar presencia. Diagrama de comunicación simplificado (flujo primario), derivado de la Figura
+12.
+Cliente
+Sistema
+1: seleccionar carpetas()
+2: guardar configuración()
+3: iniciar indexación()
+Figura 37: Cas_09 – Configurar carpetas. Diagrama de comunicación simplificado (flujo primario), derivado de la Figura
+13.
+Sistema
+Archivos Locales
+1: listar archivos()
+2: devolver información()
+3: construir índice()
+Figura 38: Cas_10 – Indexar archivos. Diagrama de comunicación simplificado (flujo primario), derivado de la Figura 14.
+43
+
+
+===== PAGE 44 =====
+Cliente
+Servidor
+1: transmitir búsqueda()
+2: resultados()
+3: mostrar archivos()
+Figura 39: Cas_11 – Buscar archivos. Diagrama de comunicación simplificado (flujo primario), derivado de la Figura 15.
+Servidor
+Clientes
+1: reenviar consulta()
+2: responder coincidencias()
+3: consolidar respuestas()
+Figura 40: Cas_12 – Transmitir búsqueda. Diagrama de comunicación simplificado (flujo primario), derivado de la Figura
+16.
+Cliente
+Sistema
+1: seleccionar sala()
+2: registrar participante()
+3: mostrar sala()
+Figura 41: Cas_13 – Unirse a salas de chat. Diagrama de comunicación simplificado (flujo primario), derivado de la Figura
+17.
+Cliente
+Servidor
+1: enviar reseña()
+2: validar y guardar()
+3: confirmar publicación()
+Figura 42: Cas_14 – Publicar reseña de archivo. Diagrama de comunicación simplificado (flujo primario), derivado de la
+Figura 18.
+Cliente
+Servidor
+1: solicitar reseñas()
+2: consultar reseñas()
+3: mostrar reseñas()
+Figura 43: Cas_15 – Consultar reseñas. Diagrama de comunicación simplificado (flujo primario), derivado de la Figura 19.
+Local
+Remoto
+1: solicitar archivos()
+2: devolver listado()
+Figura 44: Cas_16 – Explorar archivos de usuario. Diagrama de comunicación simplificado (flujo primario), derivado de la
+Figura 20.
+44
+
+
+===== PAGE 45 =====
+Local
+Remoto
+1: solicitar descarga()
+2: negociar conexión()
+3: enviar partes()
+4: verificar y guardar()
+Figura 45: Cas_17 – Descargar archivo. Diagrama de comunicación simplificado (flujo primario), derivado de la Figura 21.
+Local
+Remoto
+1: sin slots disponibles()
+2: registrar en cola()
+3: slot liberado()
+Figura 46: Cas_18 – Añadir a cola de espera. Diagrama de comunicación simplificado (flujo primario), derivado de la
+Figura 22.
+Local
+Remoto
+1: solicitud de conexión()
+2: aceptar conexión()
+3: confirmar parámetros()
+Figura 47: Cas_19 – Negociar conexión handshake. Diagrama de comunicación simplificado (flujo primario), derivado de
+la Figura 23.
+Local
+Remoto
+1: detectar bloqueo NAT()
+2: intento simultáneo()
+3: canal establecido()
+Figura 48: Cas_20 – Ejecutar NAT traversal. Diagrama de comunicación simplificado (flujo primario), derivado de la
+Figura 24.
+Local
+Remoto
+1: pedir archivo()
+2: leer archivo local()
+3: enviar datos()
+4: liberar slot()
+Figura 49: Cas_21 – Procesar petición de subida. Diagrama de comunicación simplificado (flujo primario), derivado de la
+Figura 25.
+45
+
+
+===== PAGE 46 =====
+Local
+Remoto
+1: conservar partes()
+2: reconectar()
+3: enviar partes faltantes()
+4: completar archivo()
+Figura 50: Cas_22 – Reanudar descarga rota. Diagrama de comunicación simplificado (flujo primario), derivado de la
+Figura 26.
+Local
+Remoto
+1: enviar mensaje()
+2: responder()
+Figura 51: Cas_23 – Chat privado. Diagrama de comunicación simplificado (flujo primario), derivado de la Figura 27.
+Local
+Sistema
+1: escribir reseña()
+2: guardar reseña()
+3: confirmar publicación()
+Figura 52: Cas_24 – Reseñar archivo. Diagrama de comunicación simplificado (flujo primario), derivado de la Figura 28.
+7. Arquitectura Estructural y Diseño de Clases
+El diseño de este sistema peer-to-peer (P2P) híbrido abandona los enfoques monolíticos tradicionales mediante
+la aplicación estricta de Arquitectura Limpia (Hexagonal) y los principios SOLID. Se priorizó el modelado desde
+la capa abstracta del dominio y los contratos de interfaces, delegando las implementaciones concretas (bases de
+datos, sockets de red y algoritmos de ruteo) a la capa de infraestructura. Esto garantiza que la lógica central del
+negocio sea completamente agnóstica a los detalles de transferencia y persistencia.
+7.1.
+Estructura del Cliente Peer (Capa P2P)
+Para garantizar el Principio de Responsabilidad Única (SRP), la lógica del cliente se bifurca en dos orques-
+tadores principales. Por un lado, la sincronización de presencia y metadatos se aísla de la transferencia binaria
+de archivos. Además, se aplica sistemáticamente el Principio de Inversión de Dependencias (DIP): los módulos
+de alto nivel no dependen de implementaciones concretas como RawTcpPeerTransport, sino de abstracciones
+como IPeerTransport.
+Como se observa en la Figura 53, la extensibilidad del sistema (Open/Closed Principle) se logra mediante patro-
+nes de diseño del Gang of Four (GoF). El motor de red utiliza el patrón Strategy (INatTraversalStrategy) para
+encapsular los algoritmos de perforación de NAT (UPnP, TCP Hole Punching) sin alterar el orquestador de des-
+cargas. Para las búsquedas locales, se implementa un patrón Decorator (BloomFilterRepositoryDecorator)
+que envuelve la base de datos local, permitiendo descartar consultas de red en memoria RAM con complejidad
+de tiempo O(1) antes de incurrir en costosas lecturas de disco.
+46
+
+
+===== PAGE 47 =====
+Figura 53: Diagrama de clases del Cliente P2P destacando la separación entre la capa de dominio, los orquestadores de
+aplicación y la infraestructura.
+7.2.
+Estructura del Servidor Central
+El Servidor Central actúa como el plano de control (Control Plane) de la red, manejando la señalización de
+red sin intervenir en la transmisión de datos punto a punto. Su arquitectura está orientada a soportar una alta
+concurrencia de conexiones persistentes (WebSockets o TCP crudo).
+Figura 54: Arquitectura de clases del Servidor Central, aplicando el Principio de Segregación de Interfaces (ISP) para
+desacoplar el enrutamiento de la persistencia de reseñas.
+El diseño (Figura 54) demuestra el Principio de Segregación de Interfaces (ISP). Los repositorios están cla-
+ramente delimitados: ISessionStore gestiona el estado efímero, mientras que IFileReviewRepository maneja
+los datos transaccionales. El ruteo de paquetes implementa estrategias polimórficas a través de ISearchRoutingStrategy,
+permitiendo transicionar de ruteos de difusión masiva (Broadcast) a enrutamientos filtrados por metadatos (Bloom
+Filters) a medida que la red escala, sin reescribir los orquestadores centrales.
+7.3.
+Modelo de Datos y Persistencia Políglota
+Una red P2P híbrida enfrenta cargas de trabajo asimétricas: transacciones ACID consistentes para el catálogo
+global frente a mutaciones de estado de alta frecuencia para la presencia de red. Para resolver este cuello de
+botella, el modelo adopta un enfoque de persistencia políglota.
+47
+
+
+===== PAGE 48 =====
+Figura 55: Esquema dual de persistencia: estructuras de baja latencia en memoria (Redis/RAM) para sesiones y modelo
+relacional (PostgreSQL) para la integridad de las reseñas.
+La Figura 55 detalla este diseño híbrido. El estado volátil (sesiones, *heartbeats* y direcciones IP) se modela
+en un clúster de memoria con mecanismos de expiración automática (TTL), liberando al servidor de costosos
+procesos de bloqueo de filas (*row contention*). Simultáneamente, las entidades de dominio pesado, como el
+catálogo de archivos indexados por su hash criptográfico SHA-256 y las reseñas de usuarios, se mantienen en
+un motor relacional transaccional. Esto incluye la desnormalización estratégica de atributos como la calificación
+promedio de los archivos, permitiendo operaciones de lectura O(1) fundamentales para enriquecer los resultados
+de búsqueda en tiempo real sin sobrecargar el servidor con operaciones aritméticas redundantes.
+8. Máquina de Estados de Transferencia (Cliente P2P)
+El diagrama de la Figura 56 define la máquina de estados que gobierna las descargas en la aplicación del
+cliente. Modela el ciclo de vida de una petición de archivo desde que entra a la cola hasta su resolución.
+48
+
+
+===== PAGE 49 =====
+Figura 56: Ciclo de vida y recuperación de errores en la transferencia de archivos.
+El proceso arranca en el estado Semilla (En Cola) una vez el buscador encuentra una fuente válida. Al
+concretar el handshake TCP, el sistema transita a Descargando. Desde este nodo central, un punto de decisión
+evalúa la red y la interacción del usuario para enrutar la ejecución hacia cuatro destinos:
+Completado: El cliente recibe la totalidad de los bytes y ensambla el archivo final.
+Pausado: El usuario interrumpe la descarga; el sistema guarda el progreso y el estado actual.
+Falla: Se pierde la conexión directa o expira el tiempo de espera (timeout).
+49
+
+
+===== PAGE 50 =====
+Cancelada: El usuario aborta la operación, obligando al sistema a eliminar los fragmentos temporales del
+disco.
+El diagrama destaca por su ciclo cerrado de recuperación. Los estados Pausado y Falla convergen hacia
+Reanudando. Aquí, el cliente ejecuta la búsqueda de nuevos nodos (peers) o reintenta la conexión. Si tiene
+éxito, el flujo retorna a Descargando para solicitar los bloques faltantes. Si el nodo agota sus intentos de
+reconexión sin respuesta, el sistema descarta la tarea y la envía al sumidero de Cancelada.
+9. Diagrama de Actividad con Particiones: Orquestación del Flujo de Descarga P2P
+El comportamiento dinámico del sistema ante la solicitud de un recurso se modela mediante un diagrama de
+actividades estructurado en particiones o carriles verticales (swimlanes). Esta división permite aislar con rigor
+formal las fronteras de ejecución entre la capa de presentación del usuario, los orquestadores de aplicación del
+cliente local, la capa de infraestructura de transporte/red y la entidad remota independiente que actúa como
+servidor de datos.
+En este flujo se corrige la asignación de responsabilidades de las arquitecturas cliente-servidor clásicas: la
+verificación de la disponibilidad de slots de ancho de banda y la gestión de la cola de espera (queue policy) se
+ejecutan estrictamente en el carril del Peer Remoto, ya que ningún cliente local tiene autoridad para arbitrar
+recursos en una máquina externa. De igual forma, el mecanismo de perforación de enrutadores (NAT Traversal)
+se delimita a la capa de red y únicamente se activa como contingencia si el handshake TCP directo resulta
+bloqueado por cortafuegos residenciales.
+Usuario / UI
+Gestor Descargas
+Capa Red / NAT
+Peer Remoto (Host)
+Seleccionar archivo
+y solicitar descarga
+Notificar espacio
+insuficiente en disco
+Notificar posición
+en cola de espera
+Verificar espacio
+local en disco
+¿Espacio
+suficiente?
+Recibir bloques de
+datos y escri-
+bir a disco
+Verificar checksum
+SHA-256 del archivo
+Negociar conexión
+P2P (TCP
+Handshake)
+¿Conexión
+bloqueada
+por NAT?
+Ejecutar NAT
+Traversal
+(UPnP / Ho-
+le Punch)
+¿Slots de
+subida libres?
+Leer del FS y trans-
+mitir flujo binario
+Asignar ticket y
+encolar solicitud
+[No]
+[Sí]
+[Sí]
+[No]
+[Sí]
+[No]
+Figura 57: Diagrama de actividades con particiones (swimlanes) para el proceso de descarga P2P, contemplando validación
+de espacio, NAT traversal y colas de espera.
+10. Diagrama de Sistemas: Organización por Capas y Persistencia Políglota
+Bajo los postulados de la Arquitectura Limpia (Clean Architecture), el sistema se estructura a alto nivel
+mediante subsistemas y capas concéntricas organizadas por responsabilidades específicas. Esto garantiza que las
+políticas de negocio centrales permanezcan totalmente desacopladas de los frameworks gráficos, los protocolos
+de transporte y los motores de almacenamiento.
+La descomposición arquitectónica contempla cuatro macro-sistemas:
+50
+
+
+===== PAGE 51 =====
+Capa de Presentación (UI): Gestiona la interacción del usuario, renderizado de resultados, monitoreo
+reactivo de descargas y captura de formularios de calificación.
+Capa de Aplicación y Orquestación: Coordina los casos de uso distribuidos (TransferOrchestrator,
+DiscoveryAndReviewService) y gobierna las políticas de encolamiento equitativo.
+Núcleo de Dominio (Domain Core): Encapsula las entidades puras (PeerNode, SharedFile, FileReview)
+y define los contratos e interfaces abstractas según el Principio de Inversión de Dependencias (DIP).
+Infraestructura y Persistencia Dual: Aísla las implementaciones concretas, divididas en un almacén en
+memoria RAM (filtros de Bloom y sesiones efímeras con TTL) y un motor relacional en disco (PostgreSQL)
+para garantizar transaccionalidad ACID en las reseñas.
+«layer» Presentation (UI)
+• Vistas de Chat y Búsqueda Global
+• Panel de Inspección de Reseñas
+• Monitor Reactivo de Progreso y Colas
+Presentation
+«layer» Application Orchestrators
+• TransferOrchestrator (Descargas/Subidas)
+• DiscoveryAndReviewService (Búsqueda)
+• Políticas de Cola (FairShareQueuePolicy)
+Application
+«layer» Domain Core
+• Entidades: PeerNode, SharedFile, FileReview
+• Value Objects: TransferTask, PresenceStatus
+• Contratos: IPeerTransport, INatStrategy
+Domain
+«layer» Infrastructure & Dual Per-
+sistence
+• RAM / Memoria: Filtros de Bloom y Sesiones
+TTL
+• Disco (PostgreSQL): Catálogo SHA-256 y
+Reseñas
+• Sockets Crudos: Transporte TCP y UPnP
+Traversal
+Infrastructure
+«use»
+«depend»
+«implement»
+«inject»
+Figura 58: Diagrama de paquetes del sistema estructurado por capas y segregación de persistencia.
+11. Diagrama Integral de Componentes y Ensamblaje de Interfaces
+Para reflejar el ecosistema completo sin sesgos hacia el cliente, el Diagrama Integral de Componentes
+modela los tres subsistemas operacionales: el nodo cliente local (con sus servicios simétricos de descarga y
+subida), el Servidor Central (coordinador de control y persistencia políglota) y el nodo par remoto. Las conexiones
+entre subsistemas se formalizan mediante ensamblajes ball-and-socket (interfaces provistas y requeridas) según
+el estándar UML.
+51
+
+
+===== PAGE 52 =====
+Subsistema: Nodo Cliente Local (Peer)
+Subsistema: Servidor Central
+Presentación / UI
+View & Chat Controller
+Discovery & Review
+DiscoveryAndReviewService
+Orquestador Transferencias
+TransferOrchestrator
+Índice Local / Bloom
+BloomFilterRepoDecorator
+Servidor Subida P2P
+PeerUploadListener
+Verificador Integridad
+SHA-256 Engine
+Estrategia NAT
+INatTraversalStrategy
+Almacenamiento Local
+SQLite / Sistema Archivos
+Pasarela WebSocket
+WebSocketGateway (WSS)
+Coordinador Búsquedas
+SearchCoordinatorService
+Gestor Presencia / Sesión
+PresenceSessionManager
+Motor de Reputación
+FileReputationService
+Almacén Volátil (RAM)
+Redis Cluster (TTL Sessions)
+Base de Datos ACID
+PostgreSQL (Catálogo / Reseñas)
+Host Peer Remoto
+Sockets TCP / UPnP Endpoint
+IControlPlane (WSS)
+IPeerTransport (TCP)
+Figura 59: Diagrama integral de componentes del sistema P2P híbrido, vinculando cliente, servidor central y bases de
+datos mediante interfaces formales provistas y requeridas.
+12. Diagrama de Nodos: Topología Física, Infraestructura y Protocolos de Red
+El diagrama de nodos concreta la distribución física de la infraestructura, explicitando el mapeo de los artefactos
+de software compilados sobre los dispositivos de red, pasarelas residenciales y entornos de ejecución en la nube. A
+su vez, formaliza la segregación entre el plano de control centralizado y el plano de datos directo entre clientes.
+«device»
+Host Cliente Local
+«artifact»
+Cliente P2P Desktop
+Filtro de Bloom (RAM)
+Sistema Archivos Local
+«device»
+Router / NAT Gateway
+«service»
+Tabla de Mapeo de Puertos
+Demonio UPnP / IGD
+Manejo de STUN
+«execution environment»
+Servidor Central
+«database»
+Redis Cluster (TTL / Presencia)
+PostgreSQL (Reseñas ACID)
+Gateway WebSocket
+«device»
+Host Peer Remoto
+«artifact»
+Servidor de Subida Socket
+Gestor de Cola Concurrente
+Repositorio de Archivos
+UPnP / IGD (Port Map)
+WSS (Presencia / Búsqueda)
+WSS (Presencia / Búsqueda)
+TCP Streaming / UDP Hole Punching
+Figura 60: Diagrama de nodos de la red P2P híbrida y sus protocolos de transporte.
+El diagrama de la Figura 60 sintetiza la dualidad operacional de la arquitectura:
+1. Plano de Control (Centralizado): Conexiones dúplex persistentes (WebSocket Secure - WSS) hacia el
+Servidor Central que gobiernan la autenticación, latidos periódicos de presencia (heartbeats) y enrutamiento
+federado de búsquedas.
+2. Plano de Datos (Descentralizado): Transmisión masiva de bloques binarios mediante sockets TCP di-
+rectos entre clientes, orquestando de forma dinámica la apertura de cortafuegos residenciales mediante
+peticiones UPnP/IGD y mecanismos asistidos de TCP/UDP Hole Punching.
+52

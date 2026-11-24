@@ -1,0 +1,14 @@
+$ SCAN *
+active_sessions:294815a30bb441cb8b950d18d19bd423
+active_sessions:5a36bf803d0c4b56a1da82f14e048395
+peer_bloom_filters:dfe3d8e5029d403e8f3746ea41aa6b39
+active_sessions:dfe3d8e5029d403e8f3746ea41aa6b39
+peer_bloom_filters:294815a30bb441cb8b950d18d19bd423
+peer_bloom_filters:5a36bf803d0c4b56a1da82f14e048395
+
+TTL active_sessions:294815a30bb441cb8b950d18d19bd423 = 36
+TTL active_sessions:5a36bf803d0c4b56a1da82f14e048395 = 35
+TTL active_sessions:dfe3d8e5029d403e8f3746ea41aa6b39 = 35
+STRLEN peer_bloom_filters:dfe3d8e5029d403e8f3746ea41aa6b39 = WRONGTYPE Operation against a key holding the wrong kind of value bytes ; TYPE hash ; TTL 33
+STRLEN peer_bloom_filters:294815a30bb441cb8b950d18d19bd423 = WRONGTYPE Operation against a key holding the wrong kind of value bytes ; TYPE hash ; TTL 32
+STRLEN peer_bloom_filters:5a36bf803d0c4b56a1da82f14e048395 = WRONGTYPE Operation against a key holding the wrong kind of value bytes ; TYPE hash ; TTL 45
