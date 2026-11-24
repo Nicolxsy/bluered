@@ -156,6 +156,25 @@ def _default_bloom_metrics(ctx: ClientAppContext) -> dict[str, Any]:
     }
 
 
+MAX_CONTENT_PREVIEW_BYTES = 64 * 1024
+
+
+def _read_content_preview(path: Path) -> dict[str, Any]:
+    """Read up to MAX_CONTENT_PREVIEW_BYTES of a downloaded file for inline viewing."""
+    with path.open("rb") as fh:
+        data = fh.read(MAX_CONTENT_PREVIEW_BYTES + 1)
+    truncated = len(data) > MAX_CONTENT_PREVIEW_BYTES
+    data = data[:MAX_CONTENT_PREVIEW_BYTES]
+    is_text = b"\x00" not in data
+    return {
+        "file_name": path.name,
+        "size_bytes": path.stat().st_size,
+        "is_text": is_text,
+        "truncated": truncated,
+        "content": data.decode("utf-8", errors="replace") if is_text else "",
+    }
+
+
 def _checkpoint_to_task(cp: DownloadCheckpoint) -> TransferTask:
     restored_state = TransferState(cp.state)
     if restored_state in {
@@ -682,6 +701,37 @@ def create_client_app(
             target_path=str(cp.target_path),
         )
 
+    async def _completed_download_content(snapshot: dict[str, Any] | None) -> dict[str, Any]:
+        if snapshot is None or snapshot.get("state") != TransferState.COMPLETED.value:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Completed download not found",
+            )
+        raw_path = snapshot.get("target_path")
+        target = Path(str(raw_path)) if raw_path else ctx.transfers.get_target_path(
+            str(snapshot["task_id"])
+        )
+        if target is None or not target.is_file():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Downloaded file is no longer available on disk",
+            )
+        return await asyncio.to_thread(_read_content_preview, target)
+
+    @app.get("/api/transfers/{task_id}/content")
+    async def get_transfer_content(task_id: str) -> dict[str, Any]:
+        return await _completed_download_content(ctx.event_bus.get_task_snapshot(task_id))
+
+    @app.get("/api/downloads/{file_hash}/content")
+    async def get_download_content(file_hash: str) -> dict[str, Any]:
+        for snap in ctx.event_bus.list_task_snapshots():
+            if snap.get("file_hash") == file_hash and snap.get("state") == "COMPLETED":
+                return await _completed_download_content(snap)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No completed download found for this file",
+        )
+
     @app.post("/api/transfers/download")
     async def start_download(body: DownloadRequest, response: Response) -> dict[str, Any]:
         try:
@@ -1023,8 +1073,8 @@ def create_client_app(
     # --- 6. Personal Library (Cas_04) ---
 
     @app.get("/api/library")
-    async def list_library() -> dict[str, Any]:
-        return {"items": await community_svc.list_library()}
+    async def list_library(refresh: bool = Query(True)) -> dict[str, Any]:
+        return {"items": await community_svc.list_library(refresh=refresh)}
 
     @app.post("/api/library", status_code=status.HTTP_201_CREATED)
     async def save_library_item(body: LibrarySaveRequest) -> dict[str, Any]:

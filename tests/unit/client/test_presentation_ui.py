@@ -431,6 +431,21 @@ def test_folders_search_browse_reviews_and_download_flow(tmp_path: Path) -> None
         assert lib.status_code == 200
         assert any(i["file_hash"] == sample_hash for i in lib.json()["items"])
 
+        by_task = client.get(f"/api/transfers/{dl_body['task_id']}/content")
+        assert by_task.status_code == 200
+        preview = by_task.json()
+        assert preview["is_text"] is True
+        assert preview["truncated"] is False
+        assert preview["content"] == sample_bytes.decode("utf-8")
+        assert preview["size_bytes"] == len(sample_bytes)
+
+        by_hash = client.get(f"/api/downloads/{sample_hash}/content")
+        assert by_hash.status_code == 200
+        assert by_hash.json()["content"] == preview["content"]
+
+        assert client.get("/api/transfers/unknown-task/content").status_code == 404
+        assert client.get(f"/api/downloads/{'0' * 64}/content").status_code == 404
+
 
 def test_communities_rooms_private_chat_and_blocklist(tmp_path: Path) -> None:
     client, _, _, sample_hash = _build_test_client(tmp_path)

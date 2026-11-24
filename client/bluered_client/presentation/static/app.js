@@ -372,6 +372,7 @@ function renderTransfers() {
             <button class="btn btn-sm btn-secondary" type="button" data-tx-action="pause" data-tx-id="${escapeHtml(t.task_id)}" ${canPause ? "" : "disabled"}>Pausar</button>
             <button class="btn btn-sm btn-secondary" type="button" data-tx-action="resume" data-tx-id="${escapeHtml(t.task_id)}" ${canResume ? "" : "disabled"}>Reanudar</button>
             <button class="btn btn-sm btn-danger" type="button" data-tx-action="cancel" data-tx-id="${escapeHtml(t.task_id)}" ${canCancel ? "" : "disabled"}>Cancelar</button>
+            <button class="btn btn-sm btn-primary" type="button" data-view-transfer="${escapeHtml(t.task_id)}" ${t.state === "COMPLETED" ? "" : "disabled"}>Ver contenido</button>
           </div>
         </div>
       </article>`;
@@ -510,9 +511,9 @@ function renderPrivateChat(data) {
 }
 
 /* 6. Personal Library */
-async function loadLibrary() {
+async function loadLibrary(refresh = true) {
   try {
-    const data = await api("/api/library");
+    const data = await api(`/api/library?refresh=${refresh}`);
     const items = data.items || [];
     document.getElementById("library-count-label").textContent = `${items.length} elementos`;
     const tbody = document.getElementById("library-tbody");
@@ -529,6 +530,7 @@ async function loadLibrary() {
           <td class="mono">${escapeHtml(item.file_hash.slice(0, 16))}…</td>
           <td class="actions-col">
             <button class="btn btn-sm btn-secondary" type="button" data-open-reviews="${escapeHtml(item.file_hash)}" data-file-name="${escapeHtml(item.title)}">Reseñar</button>
+            ${item.source === "downloaded" ? `<button class="btn btn-sm btn-primary" type="button" data-view-download="${escapeHtml(item.file_hash)}">Ver contenido</button>` : ""}
           </td>
         </tr>`
       )
@@ -578,7 +580,7 @@ function connectUiSocket() {
     ) {
       if (state.activeTab === "community") loadCommunityTab();
     } else if (msg.event === "library_update") {
-      if (state.activeTab === "library") loadLibrary();
+      if (state.activeTab === "library") loadLibrary(false);
     }
   };
 
@@ -879,6 +881,27 @@ document.addEventListener("DOMContentLoaded", () => {
     const dlBtn = e.target.closest("[data-download-item]");
     if (dlBtn) {
       startDownload(JSON.parse(dlBtn.dataset.downloadItem));
+      return;
+    }
+
+    const viewTx = e.target.closest("[data-view-transfer]");
+    const viewDl = e.target.closest("[data-view-download]");
+    if (viewTx || viewDl) {
+      const url = viewTx
+        ? `/api/transfers/${encodeURIComponent(viewTx.dataset.viewTransfer)}/content`
+        : `/api/downloads/${encodeURIComponent(viewDl.dataset.viewDownload)}/content`;
+      try {
+        const info = await api(url);
+        document.getElementById("content-modal-title").textContent = info.file_name;
+        document.getElementById("content-modal-meta").textContent =
+          `${formatBytes(info.size_bytes)}${info.truncated ? " · mostrando los primeros 64 KB" : ""}`;
+        document.getElementById("content-modal-body").textContent = info.is_text
+          ? info.content
+          : "Archivo binario: no se puede mostrar como texto.";
+        document.getElementById("modal-content").showModal();
+      } catch (err) {
+        showToast(err.message, true);
+      }
       return;
     }
 

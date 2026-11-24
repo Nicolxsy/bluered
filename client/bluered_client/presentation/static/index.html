@@ -393,6 +393,20 @@
     </div>
   </dialog>
 
+  <!-- MODAL: CONTENIDO DE ARCHIVO DESCARGADO -->
+  <dialog class="modal" id="modal-content">
+    <div class="modal-header">
+      <div>
+        <h2 id="content-modal-title">Contenido del archivo</h2>
+        <p class="mono muted" id="content-modal-meta"></p>
+      </div>
+      <button class="btn btn-ghost" type="button" data-close-modal="modal-content">Cerrar</button>
+    </div>
+    <div class="modal-body">
+      <pre class="content-preview" id="content-modal-body"></pre>
+    </div>
+  </dialog>
+
   <!-- MODAL: EXPLORAR USUARIO (Cas_16) -->
   <dialog class="modal" id="modal-browse">
     <div class="modal-header">
