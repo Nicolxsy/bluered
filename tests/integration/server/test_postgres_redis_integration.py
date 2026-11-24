@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
 
 import asyncpg
@@ -24,8 +25,12 @@ from bluered_server.infrastructure import (
     RedisSessionStore,
 )
 
-PG_DSN = "postgresql://bluered:bluered_dev@127.0.0.1:5432/bluered"
-REDIS_URL = "redis://127.0.0.1:6379/0"
+PG_HOST_PORT = os.getenv("BLUERED_PG_HOST_PORT", "5433")
+PG_DSN = os.getenv(
+    "BLUERED_POSTGRES_DSN",
+    f"postgresql://bluered:bluered_dev@127.0.0.1:{PG_HOST_PORT}/bluered",
+)
+REDIS_URL = os.getenv("BLUERED_REDIS_URL", "redis://127.0.0.1:6379/0")
 MIGRATION_FILE = Path(__file__).resolve().parents[3] / "server" / "migrations" / "001_init.sql"
 SAMPLE_HASH = hashlib.sha256(b"integration-test-file").hexdigest()
 
@@ -34,7 +39,7 @@ async def _connect_or_skip() -> tuple[asyncpg.Pool, redis.Redis]:
     try:
         pool = await asyncpg.create_pool(dsn=PG_DSN, min_size=1, max_size=3, timeout=2.0)
     except Exception as exc:
-        pytest.skip(f"PostgreSQL not reachable on 127.0.0.1:5432: {exc}")
+        pytest.skip(f"PostgreSQL not reachable ({PG_DSN}): {exc}")
 
     r = redis.from_url(REDIS_URL, decode_responses=False, socket_connect_timeout=2.0)
     try:

@@ -14,7 +14,7 @@ from .routing_strategies import (
     ShardedRoomRoutingStrategy,
 )
 from .security import Argon2PasswordHasher, JwtTokenProvider
-from .websocket_gateway import ServerServices, WebSocketClientGateway, create_fastapi_app
+from .websocket_gateway import WebSocketClientGateway
 
 __all__ = [
     "Argon2PasswordHasher",
@@ -25,8 +25,6 @@ __all__ = [
     "PostgresFileReviewRepository",
     "PostgresUserRepository",
     "RedisSessionStore",
-    "ServerServices",
     "ShardedRoomRoutingStrategy",
     "WebSocketClientGateway",
-    "create_fastapi_app",
 ]

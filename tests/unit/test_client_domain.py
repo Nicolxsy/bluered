@@ -9,11 +9,14 @@ from pathlib import Path
 import pytest
 from bluered_client.domain import (
     VALID_TRANSITIONS,
+    DomainError,
     DomainValidationError,
+    DownloadCheckpoint,
     FileReview,
     InvalidStateTransitionError,
     LocalPeer,
     PeerNode,
+    PeerTransportError,
     PresenceStatus,
     PrivateMessage,
     RemotePeer,
@@ -384,3 +387,24 @@ def test_search_match_and_private_message() -> None:
 
     with pytest.raises(DomainValidationError):
         PrivateMessage(message_id="m2", sender_id="p1", recipient_id="p2", content="  ")
+
+
+def test_download_checkpoint_and_peer_transport_error() -> None:
+    cp = DownloadCheckpoint(
+        task_id="task-cp-1",
+        file_hash=SAMPLE_HASH,
+        file_name="track.flac",
+        target_path=Path("downloads/track.flac"),
+        total_bytes=4096,
+        bytes_transferred=1024,
+        state="PAUSED",
+        source_peer_id="peer-bob",
+        updated_at=datetime.now(UTC),
+    )
+    assert cp.task_id == "task-cp-1"
+    assert cp.bytes_transferred == 1024
+    assert cp.source_peer_id == "peer-bob"
+
+    err = PeerTransportError("corrupt frame")
+    assert isinstance(err, DomainError)
+    assert str(err) == "corrupt frame"

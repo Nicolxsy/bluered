@@ -140,6 +140,8 @@ class InMemoryCommunityRepository:
         self.posts: list[DebatePost] = []
         self.rooms: dict[str, ChatRoom] = {
             "general": ChatRoom(room_id="general", name="General"),
+            "music-lossless": ChatRoom(room_id="music-lossless", name="Audio & Vinilos"),
+            "papers-open": ChatRoom(room_id="papers-open", name="Documentos Abiertos"),
         }
         self.library: list[LibraryItem] = []
 
@@ -154,6 +156,12 @@ class InMemoryCommunityRepository:
 
     async def create_debate_post(self, post: DebatePost) -> None:
         self.posts.append(post)
+
+    async def get_debate_post(self, post_id: str) -> DebatePost | None:
+        for post in self.posts:
+            if post.post_id == post_id:
+                return post
+        return None
 
     async def list_debate_posts(self, community_id: str) -> list[DebatePost]:
         return [p for p in self.posts if p.community_id == community_id]

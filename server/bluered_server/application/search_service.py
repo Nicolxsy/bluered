@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from collections.abc import Sequence
 from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
+
+from bluered_contracts.control_plane import (
+    SearchBroadcastMessage,
+    SearchHitItem,
+    SearchResultsMessage,
+    serialize_control_message,
+)
 
 from bluered_server.contracts import (
     IClientPushGateway,
@@ -17,8 +23,6 @@ from bluered_server.contracts import (
     ISessionStore,
 )
 from bluered_server.domain import PeerSession, SearchRequestPacket
-
-_PROTOCOL_VERSION = "1.0"
 
 
 @dataclass(slots=True)
@@ -79,14 +83,12 @@ class SearchCoordinatorService:
         targets = self._routing_strategy.select_target_peers(packet, candidate_sessions)
 
         if targets:
-            payload = json.dumps(
-                {
-                    "protocol_version": _PROTOCOL_VERSION,
-                    "type": "SEARCH_BROADCAST",
-                    "search_token": packet.search_token,
-                    "requester_id": requester_id,
-                    "query": packet.query,
-                }
+            payload = serialize_control_message(
+                SearchBroadcastMessage(
+                    search_token=packet.search_token,
+                    requester_id=requester_id,
+                    query=packet.query,
+                )
             )
             await self._push_gateway.broadcast([t.user_id for t in targets], payload)
 
@@ -124,13 +126,11 @@ class SearchCoordinatorService:
                     await asyncio.wait_for(pending.done_event.wait(), timeout=wait_for)
 
             enriched = await self.enrich_hits(pending.hits[:max_results])
-            results_payload = json.dumps(
-                {
-                    "protocol_version": _PROTOCOL_VERSION,
-                    "type": "SEARCH_RESULTS",
-                    "search_token": token,
-                    "results": enriched,
-                }
+            results_payload = serialize_control_message(
+                SearchResultsMessage(
+                    search_token=token,
+                    results=[SearchHitItem.model_validate(h) for h in enriched],
+                )
             )
             await self._push_gateway.send_to_peer(requester_id, results_payload)
             return token, enriched
@@ -156,13 +156,11 @@ class SearchCoordinatorService:
             return []
 
         enriched = await self.enrich_hits(hits)
-        results_payload = json.dumps(
-            {
-                "protocol_version": _PROTOCOL_VERSION,
-                "type": "SEARCH_RESULTS",
-                "search_token": search_token,
-                "results": enriched,
-            }
+        results_payload = serialize_control_message(
+            SearchResultsMessage(
+                search_token=search_token,
+                results=[SearchHitItem.model_validate(h) for h in enriched],
+            )
         )
         await self._push_gateway.send_to_peer(requester_id, results_payload)
         return enriched

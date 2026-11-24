@@ -72,3 +72,7 @@ class PrivateChatService:
             await self._pending_store.mark_message_delivered(msg.message_id)
             delivered_messages.append(msg)
         return delivered_messages
+
+    async def list_pending_messages(self, recipient_id: str | None = None) -> list[PrivateMessage]:
+        """List undelivered private messages stored in the local pending store."""
+        return await self._pending_store.list_pending_messages(recipient_id=recipient_id)

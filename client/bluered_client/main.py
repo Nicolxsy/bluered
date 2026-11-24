@@ -21,12 +21,21 @@ from bluered_contracts.control_plane import (
 from fastapi import FastAPI
 
 from bluered_client.application import (
+    CommunityClientService,
     DiscoveryAndReviewService,
     PeerUploadListener,
     PrivateChatService,
     TransferOrchestrator,
 )
-from bluered_client.domain import LocalPeer, PresenceStatus, PrivateMessage
+from bluered_client.domain import (
+    LocalPeer,
+    PeerBlockedError,
+    PresenceStatus,
+    PrivateMessage,
+    RemotePeer,
+    TransferState,
+    TransferTask,
+)
 from bluered_client.infrastructure import (
     BloomFilterRepositoryDecorator,
     CompositeNatTraversalStrategy,
@@ -34,6 +43,7 @@ from bluered_client.infrastructure import (
     DirectSocketNatStrategy,
     FairShareQueuePolicy,
     RawTcpPeerTransport,
+    RawTcpUploadServer,
     RelayNatStrategy,
     Sha256IntegrityVerifier,
     SqliteFileRepository,
@@ -96,6 +106,25 @@ def _parse_ws_url(url: str) -> tuple[str, int, str]:
     return host, port, path
 
 
+def _upsert_private_message_cache(
+    cache: list[dict[str, Any]],
+    msg: PrivateMessage,
+) -> None:
+    record = {
+        "message_id": msg.message_id,
+        "sender_id": msg.sender_id,
+        "recipient_id": msg.recipient_id,
+        "content": msg.content,
+        "delivered": msg.delivered,
+        "created_at": msg.created_at.isoformat(),
+    }
+    for idx, existing in enumerate(cache):
+        if existing.get("message_id") == msg.message_id:
+            cache[idx] = record
+            return
+    cache.append(record)
+
+
 def build_client_app(settings: ClientSettings | None = None) -> FastAPI:
     """Wire all Clean Architecture layers and return the FastAPI application."""
     cfg = settings or ClientSettings.from_env()
@@ -137,25 +166,22 @@ def build_client_app(settings: ClientSettings | None = None) -> FastAPI:
     )
     private_chat = PrivateChatService(local_peer, peer_transport, sqlite_repo)
 
+    known_peers: dict[str, dict[str, Any]] = {}
+    community = CommunityClientService(local_peer, coordinator, known_peers=known_peers)
+
     ctx: ClientAppContext
 
     async def _on_incoming_private_message(msg: PrivateMessage) -> None:
-        record = {
-            "message_id": msg.message_id,
-            "sender_id": msg.sender_id,
-            "recipient_id": msg.recipient_id,
-            "content": msg.content,
-            "delivered": msg.delivered,
-            "created_at": msg.created_at.isoformat(),
-        }
-        ctx.private_messages_cache.append(record)
+        _upsert_private_message_cache(ctx.private_messages_cache, msg)
         await event_bus.publish_private_message(msg)
 
+    upload_server = RawTcpUploadServer(local_peer)
     upload_listener = PeerUploadListener(
         local_peer=local_peer,
         file_index=bloom_repo,
         queue_policy=queue_policy,
         integrity_verifier=integrity,
+        upload_server=upload_server,
         on_private_message=_on_incoming_private_message,
     )
 
@@ -181,21 +207,40 @@ def build_client_app(settings: ClientSettings | None = None) -> FastAPI:
             "sender_username": msg.sender_username,
             "content": msg.content,
         }
-        ctx.room_messages_cache.append(payload)
+        community.record_incoming_room_message(payload)
         await event_bus.publish_room_message(payload)
 
+    pending_pm_tasks: dict[str, asyncio.Task[None]] = {}
+    pending_pm_locks: dict[str, asyncio.Lock] = {}
+
+    async def _deliver_pending_for_peer(remote_peer: RemotePeer) -> None:
+        lock = pending_pm_locks.setdefault(remote_peer.peer_id, asyncio.Lock())
+        async with lock:
+            try:
+                delivered = await private_chat.deliver_pending_messages(remote_peer)
+            except PeerBlockedError as exc:
+                logger.warning("Pending PM delivery blocked by %s: %s", remote_peer.peer_id, exc)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning("Pending PM delivery failed for %s: %s", remote_peer.peer_id, exc)
+            else:
+                for pm in delivered:
+                    _upsert_private_message_cache(ctx.private_messages_cache, pm)
+                    await event_bus.publish_private_message(pm)
+
     async def _handle_presence(msg: PresenceUpdateMessage) -> None:
-        if msg.ip is not None and msg.tcp_port is not None:
-            presence_val = (
-                PresenceStatus.ONLINE.value if msg.online else PresenceStatus.OFFLINE.value
-            )
-            ctx.known_peers[msg.user_id] = {
-                "peer_id": msg.user_id,
-                "username": msg.username,
-                "ip_address": msg.ip,
-                "tcp_port": msg.tcp_port,
-                "status": presence_val,
-            }
+        presence_val = (
+            PresenceStatus.ONLINE.value if msg.online else PresenceStatus.OFFLINE.value
+        )
+        previous = ctx.known_peers.get(msg.user_id, {})
+        ctx.known_peers[msg.user_id] = {
+            "peer_id": msg.user_id,
+            "username": msg.username,
+            "ip_address": msg.ip if msg.ip is not None else previous.get("ip_address"),
+            "tcp_port": msg.tcp_port if msg.tcp_port is not None else previous.get("tcp_port"),
+            "status": presence_val,
+        }
         await event_bus.publish_presence_update(
             {
                 "user_id": msg.user_id,
@@ -205,10 +250,71 @@ def build_client_app(settings: ClientSettings | None = None) -> FastAPI:
                 "tcp_port": msg.tcp_port,
             }
         )
+        if not msg.online:
+            stale_pm_task = pending_pm_tasks.pop(msg.user_id, None)
+            if stale_pm_task is not None and not stale_pm_task.done():
+                stale_pm_task.cancel()
+            return
+        if msg.ip is not None and msg.tcp_port is not None:
+            existing_pm_task = pending_pm_tasks.get(msg.user_id)
+            if existing_pm_task is not None and not existing_pm_task.done():
+                return
+            try:
+                remote_peer = RemotePeer(
+                    peer_id=msg.user_id,
+                    username=msg.username,
+                    ip_address=msg.ip,
+                    tcp_port=msg.tcp_port,
+                    status=PresenceStatus.ONLINE,
+                )
+            except Exception as exc:
+                logger.warning("Invalid peer presence payload for %s: %s", msg.user_id, exc)
+                return
+
+            pm_task = asyncio.create_task(
+                _deliver_pending_for_peer(remote_peer),
+                name=f"bluered-pm-flush-{msg.user_id[:8]}",
+            )
+            pending_pm_tasks[msg.user_id] = pm_task
+
+            def _clear_pm_task(
+                done_task: asyncio.Task[None],
+                uid: str = msg.user_id,
+            ) -> None:
+                if pending_pm_tasks.get(uid) is done_task:
+                    pending_pm_tasks.pop(uid, None)
+
+            pm_task.add_done_callback(_clear_pm_task)
+
+    async def _on_communities_synced(items: list[dict[str, Any]]) -> None:
+        community.apply_server_communities(items)
+        await event_bus.publish_community_update({"action": "communities_synced"})
+
+    async def _on_debates_synced(community_id: str, posts: list[dict[str, Any]]) -> None:
+        community.apply_server_debates(community_id, posts)
+        await event_bus.publish_community_update(
+            {"action": "debates_synced", "community_id": community_id}
+        )
+
+    async def _on_rooms_synced(rooms: list[dict[str, Any]]) -> None:
+        community.apply_server_rooms(rooms)
+
+    async def _on_library_synced(items: list[dict[str, Any]]) -> None:
+        community.apply_server_library(items)
+        await event_bus.publish_library_update({"action": "library_synced"})
+
+    async def _on_reauthenticated(user_id: str) -> None:
+        local_peer.peer_id = user_id
+        await community.sync_all()
 
     coordinator.set_search_broadcast_handler(_handle_search_broadcast)
     coordinator.set_room_message_handler(_handle_room_message)
     coordinator.set_presence_handler(_handle_presence)
+    coordinator.set_community_list_handler(_on_communities_synced)
+    coordinator.set_debate_list_handler(_on_debates_synced)
+    coordinator.set_room_list_handler(_on_rooms_synced)
+    coordinator.set_library_list_handler(_on_library_synced)
+    coordinator.set_reauthenticated_handler(_on_reauthenticated)
 
     def _get_bloom_metrics() -> dict[str, Any]:
         size_bits, hash_k, _ = bloom_repo.export_bloom_sync_payload()
@@ -222,7 +328,7 @@ def build_client_app(settings: ClientSettings | None = None) -> FastAPI:
 
     async def _rebuild_bloom_and_sync(user_id: str | None) -> int:
         count = await bloom_repo.rebuild_from_repository()
-        if user_id is not None and coordinator.is_connected:
+        if user_id is not None and coordinator.is_connected and coordinator.is_authenticated:
             size_bits, hash_k, bitset_b64 = bloom_repo.export_bloom_sync_payload()
             await coordinator.sync_bloom_filter(user_id, size_bits, hash_k, bitset_b64)
         return count
@@ -230,6 +336,37 @@ def build_client_app(settings: ClientSettings | None = None) -> FastAPI:
     async def _connect_server() -> None:
         if not coordinator.is_connected:
             await coordinator.connect(ws_host, ws_port)
+
+    manual_offline = False
+
+    async def _on_logout() -> None:
+        nonlocal manual_offline
+        manual_offline = True
+
+    async def _on_login() -> None:
+        nonlocal manual_offline
+        manual_offline = False
+
+    async def _set_presence_status(target_status: PresenceStatus) -> PresenceStatus:
+        nonlocal manual_offline
+        manual_offline = target_status == PresenceStatus.OFFLINE
+        if (
+            target_status == PresenceStatus.ONLINE
+            and not coordinator.is_connected
+            and not coordinator.has_credentials
+            and cfg.auto_login
+        ):
+            await _auto_connect_and_login(
+                cfg=cfg,
+                local_peer=local_peer,
+                coordinator=coordinator,
+                bloom_repo=bloom_repo,
+                community=community,
+                ws_host=ws_host,
+                ws_port=ws_port,
+            )
+            return coordinator.presence_status
+        return await coordinator.set_presence_status(target_status)
 
     ctx = ClientAppContext(
         local_peer=local_peer,
@@ -241,12 +378,17 @@ def build_client_app(settings: ClientSettings | None = None) -> FastAPI:
         file_index=bloom_repo,
         peer_transport=peer_transport,
         event_bus=event_bus,
+        community=community,
         advertised_host=cfg.peer_advertised_host,
         get_bloom_metrics=_get_bloom_metrics,
         list_shared_directories=sqlite_repo.list_shared_directories,
         remove_shared_directory=sqlite_repo.remove_shared_directory,
         rebuild_bloom_and_sync=_rebuild_bloom_and_sync,
         connect_server=_connect_server,
+        set_presence_status=_set_presence_status,
+        on_logout=_on_logout,
+        on_login=_on_login,
+        known_peers=known_peers,
     )
 
     heartbeat_task: asyncio.Task[None] | None = None
@@ -256,17 +398,21 @@ def build_client_app(settings: ClientSettings | None = None) -> FastAPI:
         while True:
             await asyncio.sleep(heartbeat_interval_s)
             try:
-                if coordinator.is_connected and coordinator.user_id is not None:
+                if coordinator.is_connected and coordinator.is_authenticated:
                     await coordinator.send_heartbeat(local_peer.peer_id, local_peer.tcp_port)
-                elif cfg.auto_login:
-                    await _auto_connect_and_login(
-                        cfg=cfg,
-                        local_peer=local_peer,
-                        coordinator=coordinator,
-                        bloom_repo=bloom_repo,
-                        ws_host=ws_host,
-                        ws_port=ws_port,
-                    )
+                elif cfg.auto_login and not manual_offline:
+                    if coordinator.is_connected and coordinator.has_credentials:
+                        await coordinator.set_presence_status(PresenceStatus.ONLINE)
+                    else:
+                        await _auto_connect_and_login(
+                            cfg=cfg,
+                            local_peer=local_peer,
+                            coordinator=coordinator,
+                            bloom_repo=bloom_repo,
+                            community=community,
+                            ws_host=ws_host,
+                            ws_port=ws_port,
+                        )
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -279,6 +425,32 @@ def build_client_app(settings: ClientSettings | None = None) -> FastAPI:
         cfg.download_dir.mkdir(parents=True, exist_ok=True)
         await sqlite_repo.initialize()
         await bloom_repo.rebuild_from_repository()
+
+        for cp in await transfers.list_incomplete_checkpoints():
+            restored_state = TransferState(cp.state)
+            if restored_state in {
+                TransferState.QUEUED,
+                TransferState.HANDSHAKING,
+                TransferState.TRANSFERRING,
+                TransferState.RESUMING,
+            }:
+                restored_state = TransferState.PAUSED
+            event_bus.record_task_snapshot(
+                TransferTask(
+                    task_id=cp.task_id,
+                    file_hash=cp.file_hash,
+                    file_name=cp.file_name,
+                    total_bytes=cp.total_bytes,
+                    remote_peer_id=cp.source_peer_id,
+                    state=restored_state,
+                    bytes_transferred=cp.bytes_transferred,
+                    updated_at=cp.updated_at,
+                ),
+                target_path=str(cp.target_path),
+            )
+        for pm in await private_chat.list_pending_messages():
+            _upsert_private_message_cache(ctx.private_messages_cache, pm)
+
         bound_port = await upload_listener.start()
         local_peer.tcp_port = bound_port
 
@@ -291,6 +463,7 @@ def build_client_app(settings: ClientSettings | None = None) -> FastAPI:
                 local_peer=local_peer,
                 coordinator=coordinator,
                 bloom_repo=bloom_repo,
+                community=community,
                 ws_host=ws_host,
                 ws_port=ws_port,
             )
@@ -304,6 +477,12 @@ def build_client_app(settings: ClientSettings | None = None) -> FastAPI:
             heartbeat_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await heartbeat_task
+        for pm_task in list(pending_pm_tasks.values()):
+            if not pm_task.done():
+                pm_task.cancel()
+        if pending_pm_tasks:
+            await asyncio.gather(*pending_pm_tasks.values(), return_exceptions=True)
+        pending_pm_tasks.clear()
         await coordinator.disconnect()
         await peer_transport.close()
         await upload_listener.stop()
@@ -318,26 +497,28 @@ async def _auto_connect_and_login(
     local_peer: LocalPeer,
     coordinator: WebSocketServerCoordinator,
     bloom_repo: BloomFilterRepositoryDecorator,
+    community: CommunityClientService,
     ws_host: str,
     ws_port: int,
 ) -> None:
     """Connect to the central server with retries, register if needed, login, and sync Bloom."""
-    for attempt in range(1, 11):
-        try:
-            await coordinator.connect(ws_host, ws_port)
-            break
-        except Exception as exc:
-            logger.warning(
-                "Attempt %d/10 to connect to %s:%d failed: %s",
-                attempt,
-                ws_host,
-                ws_port,
-                exc,
-            )
-            await asyncio.sleep(1.0)
-    else:
-        logger.error("Could not connect to central server at %s:%d", ws_host, ws_port)
-        return
+    if not coordinator.is_connected:
+        for attempt in range(1, 11):
+            try:
+                await coordinator.connect(ws_host, ws_port)
+                break
+            except Exception as exc:
+                logger.warning(
+                    "Attempt %d/10 to connect to %s:%d failed: %s",
+                    attempt,
+                    ws_host,
+                    ws_port,
+                    exc,
+                )
+                await asyncio.sleep(1.0)
+        else:
+            logger.error("Could not connect to central server at %s:%d", ws_host, ws_port)
+            return
 
     try:
         await coordinator.register(cfg.peer_username, cfg.peer_password)
@@ -356,6 +537,7 @@ async def _auto_connect_and_login(
         local_peer.peer_id = user_id
         size_bits, hash_k, bitset_b64 = bloom_repo.export_bloom_sync_payload()
         await coordinator.sync_bloom_filter(user_id, size_bits, hash_k, bitset_b64)
+        await community.sync_all()
         logger.info(
             "Peer '%s' (%s) online on TCP :%d, Bloom synced (%d bits)",
             local_peer.username,

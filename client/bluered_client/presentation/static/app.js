@@ -3,6 +3,7 @@ const state = {
   session: null,
   transfers: new Map(),
   activeRoom: "general",
+  selectedCommunityId: null,
   reviewTargetHash: null,
   reviewTargetName: "",
   selectedRating: 5,
@@ -381,8 +382,13 @@ function renderTransfers() {
 /* 5. Communities, Debates, Rooms & Private Chat */
 async function loadCommunityTab() {
   try {
+    const select = document.getElementById("debate-comm-id");
+    const commId = state.selectedCommunityId || (select ? select.value : "");
+    const commUrl = commId
+      ? `/api/communities?community_id=${encodeURIComponent(commId)}`
+      : "/api/communities";
     const [commData, roomsData, pmData] = await Promise.all([
-      api("/api/communities"),
+      api(commUrl),
       api("/api/rooms"),
       api("/api/chat/private"),
     ]);
@@ -396,30 +402,68 @@ async function loadCommunityTab() {
 
 function renderCommunities(data) {
   const comms = data.communities || [];
+  const select = document.getElementById("debate-comm-id");
+  const prevSelected = state.selectedCommunityId || (select ? select.value : "");
+
   const list = document.getElementById("communities-list");
   list.innerHTML = comms.length
     ? comms
         .map(
-          (c) => `<li><strong>${escapeHtml(c.name)}</strong><div class="muted">${escapeHtml(c.description || "Sin descripción")}</div></li>`
+          (c) => `
+          <li class="community-item${c.id === prevSelected ? " is-selected" : ""}" data-select-community="${escapeHtml(c.id)}">
+            <strong>${escapeHtml(c.name)}</strong>
+            <div class="muted">${escapeHtml(c.description || "Sin descripción")}</div>
+          </li>`
         )
         .join("")
     : `<li class="muted">Sin comunidades creadas todavía.</li>`;
 
-  const select = document.getElementById("debate-comm-id");
   select.innerHTML = comms.length
     ? comms.map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`).join("")
-    : `<option value="general">General</option>`;
+    : `<option value="">General</option>`;
+
+  if (prevSelected && comms.some((c) => c.id === prevSelected)) {
+    select.value = prevSelected;
+    state.selectedCommunityId = prevSelected;
+  } else if (comms.length) {
+    select.value = comms[0].id;
+    state.selectedCommunityId = comms[0].id;
+  } else {
+    state.selectedCommunityId = null;
+  }
 
   const debates = data.debates || [];
-  document.getElementById("debates-list").innerHTML = debates
-    .map(
-      (d) => `
+  const debatesEl = document.getElementById("debates-list");
+  if (!debates.length) {
+    debatesEl.innerHTML = `<div class="muted">Sin debates en esta comunidad todavía.</div>`;
+    return;
+  }
+  debatesEl.innerHTML = debates
+    .map((d) => {
+      const replies = d.replies || [];
+      const repliesHtml = replies.length
+        ? `<div class="debate-replies">${replies
+            .map(
+              (r) => `
+              <div class="debate-reply">
+                <div class="debate-reply-meta"><strong>${escapeHtml(r.author_username)}</strong> <span class="muted">${escapeHtml(r.title || "")}</span></div>
+                <p style="margin:4px 0 0">${escapeHtml(r.body)}</p>
+              </div>`
+            )
+            .join("")}</div>`
+        : "";
+      return `
       <article class="debate-item">
         <strong>${escapeHtml(d.title)}</strong> <span class="muted">por ${escapeHtml(d.author_username)}</span>
         <p style="margin:4px 0 8px">${escapeHtml(d.body)}</p>
-        <div class="muted">${(d.replies || []).length} respuestas</div>
-      </article>`
-    )
+        <div class="muted">${replies.length} respuestas</div>
+        ${repliesHtml}
+        <form class="inline-form debate-reply-form" data-reply-post-id="${escapeHtml(d.id)}">
+          <input type="text" name="body" required placeholder="Responder al debate…" />
+          <button class="btn btn-sm btn-secondary" type="submit">Responder</button>
+        </form>
+      </article>`;
+    })
     .join("");
 }
 
@@ -526,8 +570,15 @@ function connectUiSocket() {
       }
     } else if (msg.event === "presence_update") {
       loadSession();
-    } else if (msg.event === "room_message" || msg.event === "private_message") {
+    } else if (
+      msg.event === "room_message" ||
+      msg.event === "private_message" ||
+      msg.event === "community_update" ||
+      msg.event === "debate_update"
+    ) {
       if (state.activeTab === "community") loadCommunityTab();
+    } else if (msg.event === "library_update") {
+      if (state.activeTab === "library") loadLibrary();
     }
   };
 
@@ -664,10 +715,13 @@ document.addEventListener("DOMContentLoaded", () => {
     const name = document.getElementById("comm-name").value.trim();
     const description = document.getElementById("comm-desc").value.trim();
     try {
-      await api("/api/communities", {
+      const created = await api("/api/communities", {
         method: "POST",
         body: JSON.stringify({ name, description }),
       });
+      if (created && created.id) {
+        state.selectedCommunityId = created.id;
+      }
       document.getElementById("comm-name").value = "";
       document.getElementById("comm-desc").value = "";
       showToast(`Comunidad creada: ${name}`);
@@ -677,9 +731,15 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  document.getElementById("debate-comm-id").addEventListener("change", (e) => {
+    state.selectedCommunityId = e.target.value || null;
+    loadCommunityTab();
+  });
+
   document.getElementById("form-debate").addEventListener("submit", async (e) => {
     e.preventDefault();
     const commId = document.getElementById("debate-comm-id").value || "general";
+    state.selectedCommunityId = commId;
     const title = document.getElementById("debate-title").value.trim();
     const body = document.getElementById("debate-body").value.trim();
     try {
@@ -690,6 +750,27 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("debate-title").value = "";
       document.getElementById("debate-body").value = "";
       showToast("Debate publicado");
+      await loadCommunityTab();
+    } catch (err) {
+      showToast(err.message, true);
+    }
+  });
+
+  document.getElementById("debates-list").addEventListener("submit", async (e) => {
+    const form = e.target.closest(".debate-reply-form");
+    if (!form) return;
+    e.preventDefault();
+    const postId = form.dataset.replyPostId;
+    const input = form.querySelector("input[name='body']");
+    const body = input ? input.value.trim() : "";
+    if (!postId || !body) return;
+    try {
+      await api(`/api/debates/${encodeURIComponent(postId)}/replies`, {
+        method: "POST",
+        body: JSON.stringify({ body }),
+      });
+      if (input) input.value = "";
+      showToast("Respuesta publicada");
       await loadCommunityTab();
     } catch (err) {
       showToast(err.message, true);
@@ -827,6 +908,13 @@ document.addEventListener("DOMContentLoaded", () => {
       } catch (err) {
         showToast(err.message, true);
       }
+      return;
+    }
+
+    const selectComm = e.target.closest("[data-select-community]");
+    if (selectComm) {
+      state.selectedCommunityId = selectComm.dataset.selectCommunity;
+      loadCommunityTab();
       return;
     }
 

@@ -189,3 +189,11 @@ class WebSocketTransferEventListener:
     async def publish_presence_update(self, payload: dict[str, Any]) -> int:
         """Notify browser tabs of a peer presence update."""
         return await self.broadcast_event("presence_update", payload)
+
+    async def publish_community_update(self, payload: dict[str, Any]) -> int:
+        """Notify browser tabs when communities or debates change."""
+        return await self.broadcast_event("community_update", payload)
+
+    async def publish_library_update(self, payload: dict[str, Any]) -> int:
+        """Notify browser tabs when personal library items change."""
+        return await self.broadcast_event("library_update", payload)

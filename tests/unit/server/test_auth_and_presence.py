@@ -157,3 +157,5 @@ async def test_nat_punch_and_relay_signaling_cas20() -> None:
     relay_msg = parse_control_message(gateway.sent[-1][1])
     assert isinstance(relay_msg, NatRelayRequestMessage)
     assert relay_msg.session_id == "relay-sess-1"
+    assert relay_msg.target_peer_id == "u2"
+    assert relay_msg.requester_id == "u1"

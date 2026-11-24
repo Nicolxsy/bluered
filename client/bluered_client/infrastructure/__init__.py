@@ -14,6 +14,7 @@ from .nat_strategies import (
 from .queue_policies import FairShareQueuePolicy, FifoQueuePolicy
 from .sqlite_repository import DownloadCheckpoint, SqliteFileRepository
 from .tcp_peer_transport import RawTcpPeerTransport
+from .tcp_upload_server import RawTcpUploadServer
 from .ws_coordinator import ControlPlaneError, IWebSocketTransport, WebSocketServerCoordinator
 
 __all__ = [
@@ -26,6 +27,7 @@ __all__ = [
     "FifoQueuePolicy",
     "IWebSocketTransport",
     "RawTcpPeerTransport",
+    "RawTcpUploadServer",
     "RelayNatStrategy",
     "Sha256IntegrityVerifier",
     "SqliteFileRepository",

@@ -367,6 +367,28 @@ class PostgresCommunityRepository(ICommunityRepository):
                 post.created_at,
             )
 
+    async def get_debate_post(self, post_id: str) -> DebatePost | None:
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT post_id, community_id, author_id, title, body, parent_post_id, created_at
+                FROM debate_posts
+                WHERE post_id = $1
+                """,
+                post_id,
+            )
+        if row is None:
+            return None
+        return DebatePost(
+            post_id=str(row["post_id"]),
+            community_id=str(row["community_id"]),
+            author_id=str(row["author_id"]),
+            title=str(row["title"]),
+            body=str(row["body"]),
+            parent_post_id=str(row["parent_post_id"]) if row["parent_post_id"] else None,
+            created_at=row["created_at"],
+        )
+
     async def list_debate_posts(self, community_id: str) -> list[DebatePost]:
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(

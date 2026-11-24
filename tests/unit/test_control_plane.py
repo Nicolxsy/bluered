@@ -10,12 +10,17 @@ from bluered_contracts.control_plane import (
     AuthRegisterMessage,
     BloomSyncMessage,
     CommunityCreateMessage,
+    CommunityFetchMessage,
     CommunityListMessage,
     CommunitySummary,
     ControlPlaneEnvelope,
+    DebateFetchMessage,
+    DebateItem,
+    DebateListMessage,
     DebatePostMessage,
     DebateReplyMessage,
     HeartbeatMessage,
+    LibraryFetchMessage,
     LibraryItem,
     LibraryListMessage,
     LibrarySaveMessage,
@@ -28,6 +33,7 @@ from bluered_contracts.control_plane import (
     ReviewPublishMessage,
     ReviewsFetchMessage,
     ReviewsListMessage,
+    RoomFetchMessage,
     RoomJoinMessage,
     RoomListMessage,
     RoomMessage,
@@ -97,10 +103,27 @@ SAMPLE_HASH = "a" * 64
             ],
         ),
         CommunityCreateMessage(name="Redes P2P", description="Debates de protocolos"),
+        CommunityFetchMessage(),
         CommunityListMessage(communities=[CommunitySummary(id="c1", name="Redes P2P")]),
         DebatePostMessage(community_id="c1", title="TCP vs UDP", body="Comparativa"),
         DebateReplyMessage(post_id="p1", body="TCP framing !II funciona bien"),
+        DebateFetchMessage(community_id="c1"),
+        DebateListMessage(
+            community_id="c1",
+            posts=[
+                DebateItem(
+                    post_id="p1",
+                    community_id="c1",
+                    author_id="u1",
+                    title="TCP vs UDP",
+                    body="Comparativa",
+                    parent_post_id=None,
+                    created_at_iso="2026-11-23T20:00:00Z",
+                )
+            ],
+        ),
         LibrarySaveMessage(file_hash=SAMPLE_HASH, title="Paper P2P"),
+        LibraryFetchMessage(),
         LibraryListMessage(
             items=[
                 LibraryItem(
@@ -110,6 +133,7 @@ SAMPLE_HASH = "a" * 64
                 )
             ]
         ),
+        RoomFetchMessage(),
         RoomListMessage(rooms=[RoomSummary(id="r1", name="General", member_count=3)]),
         RoomJoinMessage(room_id="r1"),
         RoomMessage(room_id="r1", sender_id="u1", sender_username="alice", content="Hola"),
@@ -123,6 +147,7 @@ SAMPLE_HASH = "a" * 64
             rendezvous_at_epoch_ms=1700000000000,
         ),
         NatRelayRequestMessage(target_peer_id="u2", session_id="rel-1"),
+        NatRelayRequestMessage(target_peer_id="u2", session_id="rel-2", requester_id="u1"),
     ],
 )
 def test_control_plane_roundtrip_all_messages(msg: ControlPlaneEnvelope) -> None:

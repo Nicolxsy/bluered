@@ -218,3 +218,50 @@ async def test_file_reputation_validation_upsert_and_pagination_cas14_15_24() ->
     assert len(page1) == 1
     assert len(page2) == 1
     assert page1[0].author_id != page2[0].author_id
+
+
+async def test_handle_hit_report_direct_route_emits_valid_search_results() -> None:
+    sessions = InMemorySessionStore()
+    reviews = InMemoryFileReviewRepository()
+    gateway = InMemoryPushGateway()
+    reputation = FileReputationService(reviews)
+    await reputation.publish_review(
+        file_hash=HASH_A,
+        author_id="u9",
+        author_username="reviewer",
+        rating=4,
+        comment="Solid lossless rip",
+    )
+    await sessions.register_search_route("direct-tok-1", "req-user", ttl_seconds=60)
+
+    coordinator = SearchCoordinatorService(
+        session_store=sessions,
+        review_repo=reviews,
+        routing_strategy=FullBroadcastRoutingStrategy(),
+        push_gateway=gateway,
+    )
+    enriched = await coordinator.handle_hit_report(
+        "direct-tok-1",
+        [
+            {
+                "file_hash": HASH_A,
+                "filename": "track_a.flac",
+                "size_bytes": 4096,
+                "peer_id": "u1",
+                "peer_username": "alice",
+                "peer_ip": "127.0.0.1",
+                "peer_port": 9001,
+            }
+        ],
+    )
+    assert len(enriched) == 1
+    assert enriched[0]["avg_rating"] == pytest.approx(4.0)
+    assert enriched[0]["review_count"] == 1
+    assert len(gateway.sent) == 1
+    recipient, payload = gateway.sent[0]
+    assert recipient == "req-user"
+    parsed = parse_control_message(payload)
+    assert isinstance(parsed, SearchResultsMessage)
+    assert parsed.search_token == "direct-tok-1"
+    assert len(parsed.results) == 1
+    assert parsed.results[0].avg_rating == pytest.approx(4.0)

@@ -25,10 +25,9 @@ from bluered_server.infrastructure import (
     PostgresFileReviewRepository,
     PostgresUserRepository,
     RedisSessionStore,
-    ServerServices,
     WebSocketClientGateway,
-    create_fastapi_app,
 )
+from bluered_server.presentation import ServerServices, create_fastapi_app
 
 _MIGRATION_PATH = Path(__file__).resolve().parent.parent / "migrations" / "001_init.sql"
 
@@ -47,7 +46,7 @@ class ServerSettings:
         return cls(
             postgres_dsn=os.getenv(
                 "BLUERED_POSTGRES_DSN",
-                "postgresql://bluered:bluered_dev@127.0.0.1:5432/bluered",
+                "postgresql://bluered:bluered_dev@127.0.0.1:5433/bluered",
             ),
             redis_url=os.getenv("BLUERED_REDIS_URL", "redis://127.0.0.1:6379/0"),
             jwt_secret=os.getenv("BLUERED_JWT_SECRET", "bluered-dev-secret-change-me"),

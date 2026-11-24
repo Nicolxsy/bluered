@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
-import json
 import time
 from datetime import UTC, datetime
+
+from bluered_contracts.control_plane import (
+    NatPunchCoordinateMessage,
+    NatRelayRequestMessage,
+    PresenceUpdateMessage,
+    serialize_control_message,
+)
 
 from bluered_server.contracts import IClientPushGateway, ISessionStore
 from bluered_server.domain import PeerSession
 
 from .errors import NotFoundError, ValidationError
-
-_PROTOCOL_VERSION = "1.0"
 
 
 class PresenceAndSessionService:
@@ -137,25 +141,21 @@ class PresenceAndSessionService:
             return False
 
         rendezvous_ms = int(time.time() * 1000) + rendezvous_delay_ms
-        to_target = json.dumps(
-            {
-                "protocol_version": _PROTOCOL_VERSION,
-                "type": "NAT_PUNCH_COORDINATE",
-                "peer_id": requester_id,
-                "peer_ip": requester_ip,
-                "peer_port": requester_port,
-                "rendezvous_at_epoch_ms": rendezvous_ms,
-            }
+        to_target = serialize_control_message(
+            NatPunchCoordinateMessage(
+                peer_id=requester_id,
+                peer_ip=requester_ip,
+                peer_port=requester_port,
+                rendezvous_at_epoch_ms=rendezvous_ms,
+            )
         )
-        to_requester = json.dumps(
-            {
-                "protocol_version": _PROTOCOL_VERSION,
-                "type": "NAT_PUNCH_COORDINATE",
-                "peer_id": target.user_id,
-                "peer_ip": target.ip_address,
-                "peer_port": target.tcp_port,
-                "rendezvous_at_epoch_ms": rendezvous_ms,
-            }
+        to_requester = serialize_control_message(
+            NatPunchCoordinateMessage(
+                peer_id=target.user_id,
+                peer_ip=target.ip_address,
+                peer_port=target.tcp_port,
+                rendezvous_at_epoch_ms=rendezvous_ms,
+            )
         )
         sent_target = await self._push_gateway.send_to_peer(target_peer_id, to_target)
         sent_requester = await self._push_gateway.send_to_peer(requester_id, to_requester)
@@ -172,13 +172,12 @@ class PresenceAndSessionService:
         if target is None or target.is_expired():
             return False
 
-        payload = json.dumps(
-            {
-                "protocol_version": _PROTOCOL_VERSION,
-                "type": "NAT_RELAY_REQUEST",
-                "target_peer_id": requester_id,
-                "session_id": session_id,
-            }
+        payload = serialize_control_message(
+            NatRelayRequestMessage(
+                target_peer_id=target_peer_id,
+                session_id=session_id,
+                requester_id=requester_id,
+            )
         )
         return await self._push_gateway.send_to_peer(target_peer_id, payload)
 
@@ -187,15 +186,13 @@ class PresenceAndSessionService:
         recipients = [peer.user_id for peer in active if peer.user_id != session.user_id]
         if not recipients:
             return
-        payload = json.dumps(
-            {
-                "protocol_version": _PROTOCOL_VERSION,
-                "type": "PRESENCE_UPDATE",
-                "user_id": session.user_id,
-                "username": session.username,
-                "online": online,
-                "ip": session.ip_address if online else None,
-                "tcp_port": session.tcp_port if online else None,
-            }
+        payload = serialize_control_message(
+            PresenceUpdateMessage(
+                user_id=session.user_id,
+                username=session.username,
+                online=online,
+                ip=session.ip_address if online else None,
+                tcp_port=session.tcp_port if online else None,
+            )
         )
         await self._push_gateway.broadcast(recipients, payload)

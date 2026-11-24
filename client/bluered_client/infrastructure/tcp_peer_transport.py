@@ -8,6 +8,7 @@ import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 
 from bluered_contracts.peer_framing import (
+    FramingError,
     PeerFrame,
     PeerFrameHeader,
     PeerOp,
@@ -19,6 +20,7 @@ from bluered_client.contracts import INatTraversalStrategy
 from bluered_client.domain import (
     LocalPeer,
     PeerBlockedError,
+    PeerTransportError,
     PrivateMessage,
     QueueFullError,
     RemoteFileChangedError,
@@ -63,21 +65,24 @@ class RawTcpPeerTransport:
         self._active_writers.add(writer)
         try:
             req_id = uuid.uuid4().hex
-            async with asyncio.timeout(self._io_timeout_s):
-                await write_frame(
-                    writer,
-                    PeerFrame(
-                        header=PeerFrameHeader(
-                            op=PeerOp.HANDSHAKE_REQ,
-                            request_id=req_id,
-                            metadata={
-                                "peer_id": self._local_peer.peer_id,
-                                "username": self._local_peer.username,
-                            },
-                        )
-                    ),
-                )
-                ack = await read_frame(reader)
+            try:
+                async with asyncio.timeout(self._io_timeout_s):
+                    await write_frame(
+                        writer,
+                        PeerFrame(
+                            header=PeerFrameHeader(
+                                op=PeerOp.HANDSHAKE_REQ,
+                                request_id=req_id,
+                                metadata={
+                                    "peer_id": self._local_peer.peer_id,
+                                    "username": self._local_peer.username,
+                                },
+                            )
+                        ),
+                    )
+                    ack = await read_frame(reader)
+            except FramingError as exc:
+                raise PeerTransportError(str(exc)) from exc
             if ack.header.op != PeerOp.HANDSHAKE_ACK:
                 raise ConnectionError(f"Expected HANDSHAKE_ACK, got {ack.header.op}")
             if ack.header.status == "403":
@@ -99,18 +104,21 @@ class RawTcpPeerTransport:
         reader, writer = await self._open_and_handshake(peer)
         try:
             req_id = uuid.uuid4().hex
-            async with asyncio.timeout(self._io_timeout_s):
-                await write_frame(
-                    writer,
-                    PeerFrame(
-                        header=PeerFrameHeader(
-                            op=PeerOp.BROWSE_REQ,
-                            request_id=req_id,
-                            metadata={"peer_id": self._local_peer.peer_id},
-                        )
-                    ),
-                )
-                resp = await read_frame(reader)
+            try:
+                async with asyncio.timeout(self._io_timeout_s):
+                    await write_frame(
+                        writer,
+                        PeerFrame(
+                            header=PeerFrameHeader(
+                                op=PeerOp.BROWSE_REQ,
+                                request_id=req_id,
+                                metadata={"peer_id": self._local_peer.peer_id},
+                            )
+                        ),
+                    )
+                    resp = await read_frame(reader)
+            except FramingError as exc:
+                raise PeerTransportError(str(exc)) from exc
             if resp.header.op == PeerOp.TRANSFER_ERROR:
                 if resp.header.status == "403":
                     raise PeerBlockedError(resp.header.error_detail or "Blocked by remote peer")
@@ -156,52 +164,55 @@ class RawTcpPeerTransport:
         queued = False
         try:
             req_id = uuid.uuid4().hex
-            async with asyncio.timeout(self._io_timeout_s):
-                await write_frame(
-                    writer,
-                    PeerFrame(
-                        header=PeerFrameHeader(
-                            op=PeerOp.DOWNLOAD_REQ,
-                            request_id=req_id,
-                            file_hash=file_hash,
-                            offset=offset,
-                            metadata={"peer_id": self._local_peer.peer_id},
-                        )
-                    ),
-                )
+            try:
+                async with asyncio.timeout(self._io_timeout_s):
+                    await write_frame(
+                        writer,
+                        PeerFrame(
+                            header=PeerFrameHeader(
+                                op=PeerOp.DOWNLOAD_REQ,
+                                request_id=req_id,
+                                file_hash=file_hash,
+                                offset=offset,
+                                metadata={"peer_id": self._local_peer.peer_id},
+                            )
+                        ),
+                    )
 
-            while True:
-                wait_s = self._queue_wait_timeout_s if queued else self._io_timeout_s
-                async with asyncio.timeout(wait_s):
-                    frame = await read_frame(reader)
+                while True:
+                    wait_s = self._queue_wait_timeout_s if queued else self._io_timeout_s
+                    async with asyncio.timeout(wait_s):
+                        frame = await read_frame(reader)
 
-                op = frame.header.op
-                if op == PeerOp.QUEUE_STATUS:
-                    queued = True
-                    if on_queue_status is not None:
-                        await on_queue_status(frame.header.queue_position or 1)
-                elif op == PeerOp.SLOT_AVAILABLE:
-                    queued = False
-                    if on_slot_available is not None:
-                        await on_slot_available()
-                elif op == PeerOp.FILE_CHUNK:
-                    chunk_index = frame.header.chunk_index or 0
-                    chunk_sha256 = frame.header.chunk_sha256 or ""
-                    yield (chunk_index, frame.payload, chunk_sha256)
-                elif op == PeerOp.TRANSFER_COMPLETE:
-                    break
-                elif op == PeerOp.TRANSFER_ERROR:
-                    status = frame.header.status or "500"
-                    detail = frame.header.error_detail or f"Remote transfer error ({status})"
-                    if status == "403":
-                        raise PeerBlockedError(detail)
-                    if status == "409":
-                        raise RemoteFileChangedError(detail)
-                    if status == "503":
-                        raise QueueFullError(detail)
-                    raise RuntimeError(detail)
-                else:
-                    raise ConnectionError(f"Unexpected frame op during download: {op}")
+                    op = frame.header.op
+                    if op == PeerOp.QUEUE_STATUS:
+                        queued = True
+                        if on_queue_status is not None:
+                            await on_queue_status(frame.header.queue_position or 1)
+                    elif op == PeerOp.SLOT_AVAILABLE:
+                        queued = False
+                        if on_slot_available is not None:
+                            await on_slot_available()
+                    elif op == PeerOp.FILE_CHUNK:
+                        chunk_index = frame.header.chunk_index or 0
+                        chunk_sha256 = frame.header.chunk_sha256 or ""
+                        yield (chunk_index, frame.payload, chunk_sha256)
+                    elif op == PeerOp.TRANSFER_COMPLETE:
+                        break
+                    elif op == PeerOp.TRANSFER_ERROR:
+                        status = frame.header.status or "500"
+                        detail = frame.header.error_detail or f"Remote transfer error ({status})"
+                        if status == "403":
+                            raise PeerBlockedError(detail)
+                        if status == "409":
+                            raise RemoteFileChangedError(detail)
+                        if status == "503":
+                            raise QueueFullError(detail)
+                        raise RuntimeError(detail)
+                    else:
+                        raise ConnectionError(f"Unexpected frame op during download: {op}")
+            except FramingError as exc:
+                raise PeerTransportError(str(exc)) from exc
         finally:
             self._active_writers.discard(writer)
             await self._close_writer(writer)

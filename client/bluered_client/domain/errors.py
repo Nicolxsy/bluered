@@ -56,3 +56,7 @@ class TransferIntegrityError(DomainError):
 
 class NatTraversalError(DomainError):
     """Raised when all configured NAT traversal strategies fail to establish a TCP stream."""
+
+
+class PeerTransportError(DomainError):
+    """Raised when P2P peer transport framing or stream I/O fails."""

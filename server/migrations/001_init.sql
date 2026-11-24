@@ -89,3 +89,10 @@ CREATE TABLE IF NOT EXISTS personal_library (
 
 CREATE INDEX IF NOT EXISTS idx_personal_library_owner
     ON personal_library (owner_id, saved_at DESC);
+
+INSERT INTO chat_rooms (room_id, name, community_id, is_private)
+VALUES
+    ('general', 'General', NULL, FALSE),
+    ('music-lossless', 'Audio & Vinilos', NULL, FALSE),
+    ('papers-open', 'Documentos Abiertos', NULL, FALSE)
+ON CONFLICT (room_id) DO NOTHING;

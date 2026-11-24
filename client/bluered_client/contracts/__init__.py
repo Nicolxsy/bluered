@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from .ports import (
     IBloomSyncSource,
+    ICommunityActionPort,
+    ICommunitySyncPort,
     IDownloadCheckpointStore,
     IFileIndexRepository,
     IIncrementalIndexRepository,
@@ -11,6 +13,9 @@ from .ports import (
     INatSignalingCoordinator,
     INatTraversalStrategy,
     IPeerTransport,
+    IPeerUploadHandler,
+    IPeerUploadServer,
+    IPeerUploadSession,
     IPendingMessageStore,
     IServerCoordinator,
     IStreamingPeerTransport,
@@ -20,6 +25,8 @@ from .ports import (
 
 __all__ = [
     "IBloomSyncSource",
+    "ICommunityActionPort",
+    "ICommunitySyncPort",
     "IDownloadCheckpointStore",
     "IFileIndexRepository",
     "IIncrementalIndexRepository",
@@ -27,6 +34,9 @@ __all__ = [
     "INatSignalingCoordinator",
     "INatTraversalStrategy",
     "IPeerTransport",
+    "IPeerUploadHandler",
+    "IPeerUploadServer",
+    "IPeerUploadSession",
     "IPendingMessageStore",
     "IServerCoordinator",
     "IStreamingPeerTransport",

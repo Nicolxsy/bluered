@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from bluered_server.domain import (
     ChatRoom,
@@ -88,6 +88,17 @@ class IClientPushGateway(Protocol):
 
 
 @runtime_checkable
+class IWebSocketGateway(IClientPushGateway, Protocol):
+    """WebSocket connection lifecycle and control-plane push gateway."""
+
+    def register_connection(self, user_id: str, websocket: Any) -> None: ...
+
+    def unregister_connection(self, user_id: str, websocket: Any | None = None) -> None: ...
+
+    async def close_all(self) -> None: ...
+
+
+@runtime_checkable
 class IUserRepository(Protocol):
     """Persistent repository for UserAccount records (PostgreSQL)."""
 
@@ -111,6 +122,8 @@ class ICommunityRepository(Protocol):
     async def get_community(self, community_id: str) -> Community | None: ...
 
     async def create_debate_post(self, post: DebatePost) -> None: ...
+
+    async def get_debate_post(self, post_id: str) -> DebatePost | None: ...
 
     async def list_debate_posts(self, community_id: str) -> list[DebatePost]: ...
 

@@ -5,10 +5,12 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import os
 import socket
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import urlparse
 from uuid import uuid4
 
 import pytest
@@ -32,11 +34,10 @@ from bluered_server.infrastructure import (
     Argon2PasswordHasher,
     BloomFilterRoutingStrategy,
     JwtTokenProvider,
-    ServerServices,
     WebSocketClientGateway,
-    create_fastapi_app,
 )
-from bluered_server.main import build_server_app
+from bluered_server.main import ServerSettings, build_server_app
+from bluered_server.presentation import ServerServices, create_fastapi_app
 from fastapi import FastAPI
 
 from tests.unit.server.fakes import (
@@ -85,8 +86,34 @@ def _build_inmemory_app() -> FastAPI:
 @asynccontextmanager
 async def _running_uvicorn_server() -> AsyncIterator[tuple[str, int, bool]]:
     """Start the real FastAPI app on 127.0.0.1 with an ephemeral port."""
-    use_real_db = _is_tcp_reachable("127.0.0.1", 5432) and _is_tcp_reachable("127.0.0.1", 6379)
-    app = await build_server_app() if use_real_db else _build_inmemory_app()
+    pg_port_default = os.getenv("BLUERED_PG_HOST_PORT", "5433")
+    pg_dsn = os.getenv(
+        "BLUERED_POSTGRES_DSN",
+        f"postgresql://bluered:bluered_dev@127.0.0.1:{pg_port_default}/bluered",
+    )
+    redis_url = os.getenv("BLUERED_REDIS_URL", "redis://127.0.0.1:6379/0")
+    parsed_pg = urlparse(pg_dsn)
+    parsed_redis = urlparse(redis_url)
+    use_real_db = _is_tcp_reachable(
+        parsed_pg.hostname or "127.0.0.1", parsed_pg.port or 5433
+    ) and _is_tcp_reachable(
+        parsed_redis.hostname or "127.0.0.1", parsed_redis.port or 6379
+    )
+    app = (
+        await build_server_app(
+            ServerSettings(
+                postgres_dsn=pg_dsn,
+                redis_url=redis_url,
+                jwt_secret=os.getenv(
+                    "BLUERED_JWT_SECRET",
+                    "bluered-e2e-test-secret-key-32-bytes-min",
+                ),
+                run_migrations=True,
+            )
+        )
+        if use_real_db
+        else _build_inmemory_app()
+    )
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind(("127.0.0.1", 0))
@@ -177,7 +204,9 @@ async def test_control_plane_end_to_end(tmp_path: Path) -> None:
             shared_dir_a = tmp_path / "shared_a"
             shared_dir_a.mkdir()
             sample_path = shared_dir_a / "quantum_computing_notes.pdf"
-            sample_bytes = b"BlueRed E2E test payload for quantum computing notes.\n"
+            sample_bytes = (
+                f"BlueRed E2E test payload for quantum computing notes ({suffix}).\n".encode()
+            )
             sample_path.write_bytes(sample_bytes)
             expected_hash = hashlib.sha256(sample_bytes).hexdigest()
 

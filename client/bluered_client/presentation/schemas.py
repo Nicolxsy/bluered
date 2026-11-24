@@ -100,3 +100,12 @@ class LibrarySaveRequest(BaseModel):
     file_hash: str = Field(min_length=64, max_length=64)
     title: str = Field(min_length=1, max_length=256)
     category: str = Field(default="other", max_length=64)
+
+
+class ResumeTransferRequest(BaseModel):
+    """Optional peer hint payload when resuming a checkpoint after restart (Cas_22)."""
+
+    peer_id: str | None = Field(default=None, min_length=1)
+    peer_username: str | None = Field(default=None, min_length=1)
+    peer_ip: str | None = Field(default=None, min_length=1)
+    peer_port: int | None = Field(default=None, ge=1, le=65535)

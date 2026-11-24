@@ -28,6 +28,7 @@ from bluered_client.infrastructure import (
     DirectSocketNatStrategy,
     FairShareQueuePolicy,
     RawTcpPeerTransport,
+    RawTcpUploadServer,
     Sha256IntegrityVerifier,
     SqliteFileRepository,
 )
@@ -118,11 +119,13 @@ async def _make_peer_node(
         if on_private_message is not None:
             on_private_message.append(msg)
 
+    upload_server = RawTcpUploadServer(local_peer, io_timeout_s=10.0)
     listener = PeerUploadListener(
         local_peer=local_peer,
         file_index=repo,
         queue_policy=queue_policy,
         integrity_verifier=verifier,
+        upload_server=upload_server,
         chunk_size=64 * 1024,
         io_timeout_s=10.0,
         on_private_message=_chat_cb,

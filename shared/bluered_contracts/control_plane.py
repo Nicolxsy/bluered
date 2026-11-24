@@ -47,6 +47,17 @@ class CommunitySummary(BaseModel):
     description: str = ""
 
 
+class DebateItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    post_id: str = Field(min_length=1)
+    community_id: str = Field(min_length=1)
+    author_id: str = Field(min_length=1)
+    title: str = Field(min_length=1, max_length=200)
+    body: str = Field(min_length=1, max_length=5000)
+    parent_post_id: str | None = None
+    created_at_iso: str = Field(min_length=1)
+
+
 class LibraryItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
     file_hash: str = Field(pattern=SHA256_HEX_PATTERN)
@@ -181,6 +192,10 @@ class CommunityCreateMessage(ControlPlaneMessage):
     description: str = Field(default="", max_length=1000)
 
 
+class CommunityFetchMessage(ControlPlaneMessage):
+    type: Literal["COMMUNITY_FETCH"] = "COMMUNITY_FETCH"
+
+
 class CommunityListMessage(ControlPlaneMessage):
     type: Literal["COMMUNITY_LIST"] = "COMMUNITY_LIST"
     communities: list[CommunitySummary] = Field(default_factory=list)
@@ -199,15 +214,34 @@ class DebateReplyMessage(ControlPlaneMessage):
     body: str = Field(min_length=1, max_length=5000)
 
 
+class DebateFetchMessage(ControlPlaneMessage):
+    type: Literal["DEBATE_FETCH"] = "DEBATE_FETCH"
+    community_id: str = Field(min_length=1)
+
+
+class DebateListMessage(ControlPlaneMessage):
+    type: Literal["DEBATE_LIST"] = "DEBATE_LIST"
+    community_id: str = Field(min_length=1)
+    posts: list[DebateItem] = Field(default_factory=list)
+
+
 class LibrarySaveMessage(ControlPlaneMessage):
     type: Literal["LIBRARY_SAVE"] = "LIBRARY_SAVE"
     file_hash: str = Field(pattern=SHA256_HEX_PATTERN)
     title: str = Field(min_length=1, max_length=256)
 
 
+class LibraryFetchMessage(ControlPlaneMessage):
+    type: Literal["LIBRARY_FETCH"] = "LIBRARY_FETCH"
+
+
 class LibraryListMessage(ControlPlaneMessage):
     type: Literal["LIBRARY_LIST"] = "LIBRARY_LIST"
     items: list[LibraryItem] = Field(default_factory=list)
+
+
+class RoomFetchMessage(ControlPlaneMessage):
+    type: Literal["ROOM_FETCH"] = "ROOM_FETCH"
 
 
 class RoomListMessage(ControlPlaneMessage):
@@ -250,6 +284,7 @@ class NatRelayRequestMessage(ControlPlaneMessage):
     type: Literal["NAT_RELAY_REQUEST"] = "NAT_RELAY_REQUEST"
     target_peer_id: str = Field(min_length=1)
     session_id: str = Field(min_length=1)
+    requester_id: str | None = Field(default=None, min_length=1)
 
 
 ControlPlaneEnvelope = Annotated[
@@ -269,11 +304,16 @@ ControlPlaneEnvelope = Annotated[
     | ReviewsFetchMessage
     | ReviewsListMessage
     | CommunityCreateMessage
+    | CommunityFetchMessage
     | CommunityListMessage
     | DebatePostMessage
     | DebateReplyMessage
+    | DebateFetchMessage
+    | DebateListMessage
     | LibrarySaveMessage
+    | LibraryFetchMessage
     | LibraryListMessage
+    | RoomFetchMessage
     | RoomListMessage
     | RoomJoinMessage
     | RoomMessage

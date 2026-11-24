@@ -14,6 +14,7 @@ from bluered_client.domain import (
     InsufficientDiskSpaceError,
     LocalPeer,
     PeerBlockedError,
+    PeerTransportError,
     PresenceStatus,
     PrivateMessage,
     RemoteFileChangedError,
@@ -22,7 +23,13 @@ from bluered_client.domain import (
     TransferState,
     TransferTask,
 )
-from bluered_client.infrastructure import Sha256IntegrityVerifier, SqliteFileRepository
+from bluered_client.infrastructure import (
+    CompositeNatTraversalStrategy,
+    DirectSocketNatStrategy,
+    RawTcpPeerTransport,
+    Sha256IntegrityVerifier,
+    SqliteFileRepository,
+)
 
 
 class _DiskUsage(NamedTuple):
@@ -222,3 +229,82 @@ async def test_private_chat_service_validation_offline_and_blocked(tmp_path: Pat
         transport.blocked = True
         with pytest.raises(PeerBlockedError):
             await svc.send_message(_remote(), "Blocked msg")
+
+
+async def test_orchestrator_resumes_crash_interrupted_checkpoint_and_handles_transport_error(
+    tmp_path: Path,
+) -> None:
+    payload = b"0123456789ABCDEF" * 64
+    file_hash = hashlib.sha256(payload).hexdigest()
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    target_path = downloads / "crashed.bin"
+    part_path = downloads / "crashed.bin.part"
+    part_path.write_bytes(payload[:512])
+
+    async with SqliteFileRepository(tmp_path / "resume.db") as repo:
+        await repo.save_download_checkpoint(
+            task_id="task-crash-1",
+            file_hash=file_hash,
+            file_name="crashed.bin",
+            target_path=target_path,
+            total_bytes=len(payload),
+            bytes_transferred=512,
+            state="TRANSFERRING",
+            source_peer_id="remote-1",
+        )
+        transport = _FakeTransport([payload[:512], payload[512:]])
+        orch = TransferOrchestrator(
+            _local(),
+            transport,
+            Sha256IntegrityVerifier(),
+            downloads,
+            checkpoint_store=repo,
+        )
+        resumed = await orch.resume_download("task-crash-1", _remote())
+        assert resumed.state == TransferState.COMPLETED
+        assert transport.requested_offsets == [512]
+        assert target_path.read_bytes() == payload
+
+        # Orchestrator catches PeerTransportError cleanly
+        bad_transport = _FakeTransport([], fail_with=PeerTransportError("bad frame"))
+        bad_orch = TransferOrchestrator(
+            _local(),
+            bad_transport,
+            Sha256IntegrityVerifier(),
+            downloads,
+            checkpoint_store=repo,
+            disk_usage_fn=lambda _: _DiskUsage(10_000_000, 0, 10_000_000),
+        )
+        failed = await bad_orch.start_download(
+            _remote(),
+            SharedFile(file_hash=file_hash, file_name="bad.bin", size_bytes=len(payload)),
+        )
+        assert failed.state == TransferState.FAILED
+        assert failed.error_message == "bad frame"
+
+
+async def test_raw_tcp_peer_transport_maps_framing_error_to_peer_transport_error() -> None:
+    import asyncio
+    import struct
+
+    async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        del reader
+        # Send absurd header_len (100 MB) to trigger FramingError on client read_frame
+        writer.write(struct.pack("!II", 100 * 1024 * 1024, 0))
+        await writer.drain()
+        writer.close()
+
+    server = await asyncio.start_server(handle, "127.0.0.1", 0)
+    port = int(server.sockets[0].getsockname()[1])
+    try:
+        local = _local()
+        remote = RemotePeer("remote-1", "bob", "127.0.0.1", port, status=PresenceStatus.ONLINE)
+        nat = CompositeNatTraversalStrategy([DirectSocketNatStrategy(connect_timeout_s=2.0)])
+        transport = RawTcpPeerTransport(local, nat, io_timeout_s=2.0)
+        with pytest.raises(PeerTransportError):
+            await transport.browse_peer_files(remote)
+        await transport.close()
+    finally:
+        server.close()
+        await server.wait_closed()

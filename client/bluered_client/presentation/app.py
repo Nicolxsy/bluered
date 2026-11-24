@@ -3,19 +3,29 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query, Response, WebSocket, WebSocketDisconnect, status
+from fastapi import (
+    FastAPI,
+    HTTPException,
+    Query,
+    Response,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from bluered_client.application import (
+    CommunityClientService,
     DiscoveryAndReviewService,
     PeerUploadListener,
     PrivateChatService,
@@ -23,6 +33,7 @@ from bluered_client.application import (
 )
 from bluered_client.contracts import (
     IBloomSyncSource,
+    ICommunityActionPort,
     IFileIndexRepository,
     IPeerTransport,
     IServerCoordinator,
@@ -30,6 +41,7 @@ from bluered_client.contracts import (
 from bluered_client.domain import (
     DomainError,
     DomainValidationError,
+    DownloadCheckpoint,
     InsufficientDiskSpaceError,
     InvalidStateTransitionError,
     LocalPeer,
@@ -41,6 +53,7 @@ from bluered_client.domain import (
     RemotePeer,
     SharedFile,
     TransferIntegrityError,
+    TransferState,
     TransferTask,
 )
 
@@ -57,33 +70,12 @@ from .schemas import (
     PresenceUpdateRequest,
     PrivateChatRequest,
     PublishReviewRequest,
+    ResumeTransferRequest,
     RoomMessageRequest,
 )
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
-
-
-@runtime_checkable
-class ICommunityActionPort(Protocol):
-    """Optional control-plane extensions for communities, debates, rooms, and library."""
-
-    async def create_community(self, name: str, description: str = "") -> None: ...
-
-    async def post_debate(self, community_id: str, title: str, body: str) -> None: ...
-
-    async def reply_debate(self, post_id: str, body: str) -> None: ...
-
-    async def save_to_library(self, file_hash: str, title: str) -> None: ...
-
-    async def join_room(self, room_id: str) -> None: ...
-
-    async def send_room_message(
-        self,
-        room_id: str,
-        sender_id: str,
-        sender_username: str,
-        content: str,
-    ) -> None: ...
+_logger = logging.getLogger("bluered.client.presentation")
 
 
 @dataclass(slots=True)
@@ -99,6 +91,7 @@ class ClientAppContext:
     file_index: IFileIndexRepository
     peer_transport: IPeerTransport
     event_bus: WebSocketTransferEventListener
+    community: CommunityClientService | None = None
     advertised_host: str = "127.0.0.1"
     get_bloom_metrics: Callable[[], dict[str, Any]] | None = None
     list_shared_directories: Callable[[], Awaitable[list[Path]]] | None = None
@@ -107,33 +100,9 @@ class ClientAppContext:
     connect_server: Callable[[], Awaitable[None]] | None = None
     get_session_state: Callable[[], dict[str, Any]] | None = None
     set_presence_status: Callable[[PresenceStatus], Awaitable[PresenceStatus]] | None = None
-    communities_cache: list[dict[str, Any]] = field(default_factory=list)
-    debates_cache: list[dict[str, Any]] = field(default_factory=list)
-    rooms_cache: list[dict[str, Any]] = field(
-        default_factory=lambda: [
-            {
-                "id": "general",
-                "name": "General",
-                "visibility": "public",
-                "member_count": 1,
-            },
-            {
-                "id": "music-lossless",
-                "name": "Audio & Vinilos",
-                "visibility": "public",
-                "member_count": 1,
-            },
-            {
-                "id": "papers-open",
-                "name": "Documentos Abiertos",
-                "visibility": "public",
-                "member_count": 1,
-            },
-        ]
-    )
-    room_messages_cache: list[dict[str, Any]] = field(default_factory=list)
+    on_logout: Callable[[], Awaitable[None]] | None = None
+    on_login: Callable[[], Awaitable[None]] | None = None
     private_messages_cache: list[dict[str, Any]] = field(default_factory=list)
-    library_cache: list[dict[str, Any]] = field(default_factory=list)
     known_peers: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
@@ -154,13 +123,17 @@ def _default_session_state(ctx: ClientAppContext) -> dict[str, Any]:
         return ctx.get_session_state()
     connected = bool(getattr(ctx.server_coordinator, "is_connected", False))
     user_id = getattr(ctx.server_coordinator, "user_id", None)
+    is_auth_attr = getattr(ctx.server_coordinator, "is_authenticated", None)
+    authenticated = (
+        bool(is_auth_attr) if is_auth_attr is not None else (connected and user_id is not None)
+    )
     status_val = getattr(ctx.server_coordinator, "presence_status", PresenceStatus.OFFLINE)
     presence_str = (
         status_val.value if isinstance(status_val, PresenceStatus) else str(status_val)
     )
     return {
         "connected": connected,
-        "authenticated": user_id is not None,
+        "authenticated": authenticated,
         "user_id": user_id or ctx.local_peer.peer_id,
         "username": ctx.local_peer.username,
         "presence_status": presence_str,
@@ -183,6 +156,64 @@ def _default_bloom_metrics(ctx: ClientAppContext) -> dict[str, Any]:
     }
 
 
+def _checkpoint_to_task(cp: DownloadCheckpoint) -> TransferTask:
+    restored_state = TransferState(cp.state)
+    if restored_state in {
+        TransferState.QUEUED,
+        TransferState.HANDSHAKING,
+        TransferState.TRANSFERRING,
+        TransferState.RESUMING,
+    }:
+        restored_state = TransferState.PAUSED
+    return TransferTask(
+        task_id=cp.task_id,
+        file_hash=cp.file_hash,
+        file_name=cp.file_name,
+        total_bytes=cp.total_bytes,
+        remote_peer_id=cp.source_peer_id,
+        state=restored_state,
+        bytes_transferred=cp.bytes_transferred,
+        updated_at=cp.updated_at,
+    )
+
+
+def _resolve_resume_peer(
+    ctx: ClientAppContext,
+    task_id: str,
+    source_peer_id: str,
+    body: ResumeTransferRequest | None,
+) -> RemotePeer | None:
+    if body is not None and body.peer_ip is not None and body.peer_port is not None:
+        return RemotePeer(
+            peer_id=body.peer_id or source_peer_id,
+            username=body.peer_username or source_peer_id,
+            ip_address=body.peer_ip,
+            tcp_port=body.peer_port,
+            status=PresenceStatus.ONLINE,
+        )
+    in_mem_peer = ctx.transfers.get_peer(task_id)
+    if in_mem_peer is not None:
+        known = ctx.known_peers.get(in_mem_peer.peer_id)
+        if known is not None and known.get("status") == PresenceStatus.OFFLINE.value:
+            return None
+        return in_mem_peer
+    known = ctx.known_peers.get(source_peer_id)
+    if (
+        known is not None
+        and known.get("status") != PresenceStatus.OFFLINE.value
+        and known.get("ip_address")
+        and known.get("tcp_port")
+    ):
+        return RemotePeer(
+            peer_id=source_peer_id,
+            username=str(known.get("username") or source_peer_id),
+            ip_address=str(known["ip_address"]),
+            tcp_port=int(known["tcp_port"]),
+            status=PresenceStatus(str(known.get("status") or PresenceStatus.ONLINE.value)),
+        )
+    return None
+
+
 def create_client_app(
     ctx: ClientAppContext,
     *,
@@ -190,7 +221,20 @@ def create_client_app(
     on_shutdown: Callable[[], Awaitable[None]] | None = None,
 ) -> FastAPI:
     """Build the local FastAPI application for a BlueRed peer."""
-    background_transfers: dict[str, asyncio.Task[TransferTask]] = {}
+    if ctx.community is None:
+        port = (
+            ctx.server_coordinator
+            if isinstance(ctx.server_coordinator, ICommunityActionPort)
+            else None
+        )
+        ctx.community = CommunityClientService(
+            ctx.local_peer,
+            port,
+            known_peers=ctx.known_peers,
+        )
+    community_svc = ctx.community
+
+    background_transfers: dict[str, asyncio.Task[TransferTask | None]] = {}
     session_override: dict[str, Any] = {
         "authenticated": False,
         "presence_status": None,
@@ -223,7 +267,8 @@ def create_client_app(
 
     def _current_session() -> dict[str, Any]:
         base = _default_session_state(ctx)
-        if session_override["authenticated"]:
+        has_live_auth = getattr(ctx.server_coordinator, "is_authenticated", None) is not None
+        if not has_live_auth and session_override["authenticated"]:
             base["authenticated"] = True
         if session_override["presence_status"] is not None:
             base["presence_status"] = str(session_override["presence_status"])
@@ -247,6 +292,34 @@ def create_client_app(
             task,
             target_path=str(target_path) if target_path is not None else None,
         )
+
+    async def _hydrate_incomplete_checkpoints() -> None:
+        checkpoints = await ctx.transfers.list_incomplete_checkpoints()
+        for cp in checkpoints:
+            if ctx.transfers.get_task(cp.task_id) is None and (
+                ctx.event_bus.get_task_snapshot(cp.task_id) is None
+            ):
+                ctx.event_bus.record_task_snapshot(
+                    _checkpoint_to_task(cp),
+                    target_path=str(cp.target_path),
+                )
+
+    async def _hydrate_pending_private_messages() -> None:
+        pending = await ctx.private_chat.list_pending_messages()
+        existing_ids = {m["message_id"] for m in ctx.private_messages_cache}
+        for msg in pending:
+            if msg.message_id not in existing_ids:
+                ctx.private_messages_cache.append(
+                    {
+                        "message_id": msg.message_id,
+                        "sender_id": msg.sender_id,
+                        "recipient_id": msg.recipient_id,
+                        "content": msg.content,
+                        "delivered": msg.delivered,
+                        "created_at": msg.created_at.isoformat(),
+                    }
+                )
+                existing_ids.add(msg.message_id)
 
     # --- SPA Entry & Health ---
 
@@ -284,7 +357,7 @@ def create_client_app(
             "advertised_host": ctx.advertised_host,
             "max_upload_slots": ctx.local_peer.max_upload_slots,
             "active_uploads": ctx.upload_listener.active_uploads,
-            "blocked_peers": sorted(ctx.local_peer.blocked_peer_ids),
+            "blocked_peers": community_svc.list_blocked_peers(),
             "bloom": _default_bloom_metrics(ctx),
             "known_peers": list(ctx.known_peers.values()),
         }
@@ -316,8 +389,13 @@ def create_client_app(
             ) from exc
         ctx.local_peer.peer_id = user_id
         ctx.local_peer.username = body.username
-        session_override["authenticated"] = True
-        session_override["presence_status"] = PresenceStatus.ONLINE.value
+        if ctx.on_login is not None:
+            await ctx.on_login()
+        has_live_auth = getattr(ctx.server_coordinator, "is_authenticated", None) is not None
+        session_override["authenticated"] = not has_live_auth
+        session_override["presence_status"] = (
+            None if ctx.set_presence_status is not None else PresenceStatus.ONLINE.value
+        )
         if ctx.local_peer.shared_directories:
             await ctx.discovery.configure_and_index(
                 list(ctx.local_peer.shared_directories),
@@ -326,6 +404,7 @@ def create_client_app(
         elif isinstance(ctx.file_index, IBloomSyncSource):
             size_bits, k, bitset_b64 = ctx.file_index.export_bloom_sync_payload()
             await ctx.server_coordinator.sync_bloom_filter(user_id, size_bits, k, bitset_b64)
+        await community_svc.sync_all()
         await ctx.event_bus.publish_presence_update(
             {
                 "user_id": user_id,
@@ -342,9 +421,13 @@ def create_client_app(
 
     @app.post("/api/session/logout")
     async def logout_session() -> dict[str, str]:
+        if ctx.on_logout is not None:
+            await ctx.on_logout()
         await ctx.server_coordinator.disconnect()
         session_override["authenticated"] = False
-        session_override["presence_status"] = PresenceStatus.OFFLINE.value
+        session_override["presence_status"] = (
+            None if ctx.set_presence_status is not None else PresenceStatus.OFFLINE.value
+        )
         await ctx.event_bus.publish_presence_update(
             {
                 "user_id": ctx.local_peer.peer_id,
@@ -359,7 +442,8 @@ def create_client_app(
         target_status = PresenceStatus(body.status)
         if ctx.set_presence_status is not None:
             resolved = await ctx.set_presence_status(target_status)
-            session_override["presence_status"] = resolved.value
+            session_override["presence_status"] = None
+            resolved_str = resolved.value
         else:
             if target_status == PresenceStatus.OFFLINE:
                 await ctx.server_coordinator.disconnect()
@@ -370,14 +454,15 @@ def create_client_app(
                     ctx.local_peer.tcp_port,
                 )
             session_override["presence_status"] = target_status.value
+            resolved_str = target_status.value
         await ctx.event_bus.publish_presence_update(
             {
                 "user_id": ctx.local_peer.peer_id,
                 "username": ctx.local_peer.username,
-                "status": str(session_override["presence_status"]),
+                "status": resolved_str,
             }
         )
-        return {"presence_status": str(session_override["presence_status"])}
+        return {"presence_status": resolved_str}
 
     # --- 2. Shared Folders & Local Index (Cas_09, Cas_10, Cas_05) ---
 
@@ -571,6 +656,7 @@ def create_client_app(
 
     @app.get("/api/transfers")
     async def list_transfers() -> dict[str, Any]:
+        await _hydrate_incomplete_checkpoints()
         return {
             "transfers": ctx.event_bus.list_task_snapshots(),
             "active_uploads": ctx.upload_listener.active_uploads,
@@ -583,12 +669,18 @@ def create_client_app(
         if task is not None:
             return _task_to_dict(task)
         snapshot = ctx.event_bus.get_task_snapshot(task_id)
-        if snapshot is None:
+        if snapshot is not None:
+            return snapshot
+        cp = await ctx.transfers.get_checkpoint(task_id)
+        if cp is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Transfer '{task_id}' not found",
             )
-        return snapshot
+        return ctx.event_bus.record_task_snapshot(
+            _checkpoint_to_task(cp),
+            target_path=str(cp.target_path),
+        )
 
     @app.post("/api/transfers/download")
     async def start_download(body: DownloadRequest, response: Response) -> dict[str, Any]:
@@ -636,19 +728,23 @@ def create_client_app(
             response.status_code = status.HTTP_200_OK
             payload = _task_to_dict(task)
             if task.state.value == "COMPLETED":
-                _remember_library_download(ctx, shared_file)
+                community_svc.remember_downloaded_file(shared_file)
             return payload
 
-        async def _run_download() -> TransferTask:
-            result = await ctx.transfers.start_download(
-                remote_peer,
-                shared_file,
-                conflict_policy=body.conflict_policy,
-                task_id=task_id,
-            )
+        async def _run_download() -> TransferTask | None:
+            try:
+                result = await ctx.transfers.start_download(
+                    remote_peer,
+                    shared_file,
+                    conflict_policy=body.conflict_policy,
+                    task_id=task_id,
+                )
+            except Exception as exc:
+                _logger.warning("Background download %s failed: %s", task_id, exc)
+                return None
             _task_to_dict(result)
             if result.state.value == "COMPLETED":
-                _remember_library_download(ctx, shared_file)
+                community_svc.remember_downloaded_file(shared_file)
             return result
 
         bg_task = asyncio.create_task(_run_download(), name=f"bluered-dl-{task_id[:8]}")
@@ -686,33 +782,111 @@ def create_client_app(
         return _task_to_dict(task)
 
     @app.post("/api/transfers/{task_id}/resume")
-    async def resume_transfer(task_id: str, wait: bool = Query(default=False)) -> dict[str, Any]:
-        if wait:
-            try:
-                task = await ctx.transfers.resume_download(task_id)
-            except KeyError as exc:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-            except (ValueError, DomainError) as exc:
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-            return _task_to_dict(task)
-
+    async def resume_transfer(
+        task_id: str,
+        wait: bool = Query(default=False),
+        body: ResumeTransferRequest | None = None,
+    ) -> dict[str, Any]:
         existing = ctx.transfers.get_task(task_id)
-        if existing is None:
+        checkpoint = None if existing is not None else await ctx.transfers.get_checkpoint(task_id)
+
+        if existing is None and checkpoint is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Transfer '{task_id}' not found",
             )
 
-        async def _run_resume() -> TransferTask:
-            resumed = await ctx.transfers.resume_download(task_id)
+        current_task = existing if existing is not None else _checkpoint_to_task(checkpoint)  # type: ignore[arg-type]
+        if current_task.state.is_terminal:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Transfer '{task_id}' is already in terminal state "
+                    f"{current_task.state.value}"
+                ),
+            )
+
+        try:
+            resolved_peer = _resolve_resume_peer(
+                ctx,
+                task_id,
+                current_task.remote_peer_id,
+                body,
+            )
+        except DomainValidationError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+        if resolved_peer is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Source peer '{current_task.remote_peer_id}' is unknown or offline",
+            )
+
+        if wait:
+            try:
+                task = await ctx.transfers.resume_download(task_id, peer=resolved_peer)
+            except KeyError as exc:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+            except (ValueError, DomainError) as exc:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+            payload = _task_to_dict(task)
+            if task.state.value == "COMPLETED":
+                community_svc.remember_downloaded_file(
+                    SharedFile(
+                        file_hash=task.file_hash,
+                        file_name=task.file_name,
+                        size_bytes=task.total_bytes,
+                    )
+                )
+            return payload
+
+        async def _run_resume() -> TransferTask | None:
+            try:
+                resumed = await ctx.transfers.resume_download(task_id, peer=resolved_peer)
+            except Exception as exc:
+                _logger.warning("Background resume %s failed: %s", task_id, exc)
+                return None
             _task_to_dict(resumed)
+            if resumed.state.value == "COMPLETED":
+                community_svc.remember_downloaded_file(
+                    SharedFile(
+                        file_hash=resumed.file_hash,
+                        file_name=resumed.file_name,
+                        size_bytes=resumed.total_bytes,
+                    )
+                )
             return resumed
+
+        in_flight = background_transfers.get(task_id)
+        if in_flight is not None and not in_flight.done():
+            live = ctx.transfers.get_task(task_id)
+            if live is not None:
+                return _task_to_dict(live)
+            if existing is not None:
+                return _task_to_dict(existing)
+            snap = ctx.event_bus.get_task_snapshot(task_id)
+            if snap is not None:
+                return snap
+            assert checkpoint is not None
+            return ctx.event_bus.record_task_snapshot(
+                current_task,
+                target_path=str(checkpoint.target_path),
+            )
 
         bg_task = asyncio.create_task(_run_resume(), name=f"bluered-resume-{task_id[:8]}")
         background_transfers[task_id] = bg_task
         bg_task.add_done_callback(lambda _t: background_transfers.pop(task_id, None))
         await asyncio.sleep(0)
-        return _task_to_dict(existing)
+        live = ctx.transfers.get_task(task_id)
+        if live is not None:
+            return _task_to_dict(live)
+        if existing is not None:
+            return _task_to_dict(existing)
+        assert checkpoint is not None
+        return ctx.event_bus.record_task_snapshot(
+            current_task,
+            target_path=str(checkpoint.target_path),
+        )
 
     @app.post("/api/transfers/{task_id}/cancel")
     async def cancel_transfer(task_id: str) -> dict[str, Any]:
@@ -727,131 +901,83 @@ def create_client_app(
     # --- 5. Communities, Debates, Rooms & Private P2P Chat (Cas_01-Cas_06, Cas_13, Cas_23) ---
 
     @app.get("/api/communities")
-    async def list_communities() -> dict[str, Any]:
-        return {
-            "communities": list(ctx.communities_cache),
-            "debates": list(ctx.debates_cache),
-        }
+    async def list_communities(
+        community_id: str | None = Query(default=None),
+    ) -> dict[str, Any]:
+        return await community_svc.list_communities(community_id=community_id)
 
     @app.post("/api/communities", status_code=status.HTTP_201_CREATED)
     async def create_community(body: CreateCommunityRequest) -> dict[str, Any]:
-        if isinstance(ctx.server_coordinator, ICommunityActionPort):
-            try:
-                await ctx.server_coordinator.create_community(body.name, body.description)
-            except Exception as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=f"Failed to create community: {exc}",
-                ) from exc
-        item = {
-            "id": uuid.uuid4().hex[:12],
-            "name": body.name.strip(),
-            "description": body.description.strip(),
-            "parent_id": body.parent_id,
-            "created_at": datetime.now(UTC).isoformat(),
-        }
-        ctx.communities_cache.append(item)
+        try:
+            item = await community_svc.create_community(
+                body.name,
+                body.description,
+                parent_id=body.parent_id,
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Failed to create community: {exc}",
+            ) from exc
+        await ctx.event_bus.publish_community_update({"action": "community_created", "item": item})
         return item
 
     @app.post("/api/communities/{community_id}/debates", status_code=status.HTTP_201_CREATED)
     async def create_debate(community_id: str, body: CreateDebateRequest) -> dict[str, Any]:
-        if isinstance(ctx.server_coordinator, ICommunityActionPort):
-            try:
-                await ctx.server_coordinator.post_debate(community_id, body.title, body.body)
-            except Exception as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=f"Failed to post debate: {exc}",
-                ) from exc
-        post = {
-            "id": uuid.uuid4().hex[:12],
-            "community_id": community_id,
-            "author_username": ctx.local_peer.username,
-            "title": body.title.strip(),
-            "body": body.body.strip(),
-            "replies": [],
-            "created_at": datetime.now(UTC).isoformat(),
-        }
-        ctx.debates_cache.insert(0, post)
+        try:
+            post = await community_svc.post_debate(community_id, body.title, body.body)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Failed to post debate: {exc}",
+            ) from exc
+        await ctx.event_bus.publish_community_update({"action": "debate_posted", "post": post})
         return post
 
     @app.post("/api/debates/{post_id}/replies", status_code=status.HTTP_201_CREATED)
     async def reply_debate(post_id: str, body: CreateDebateReplyRequest) -> dict[str, Any]:
-        if isinstance(ctx.server_coordinator, ICommunityActionPort):
-            try:
-                await ctx.server_coordinator.reply_debate(post_id, body.body)
-            except Exception as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=f"Failed to post reply: {exc}",
-                ) from exc
-        reply = {
-            "id": uuid.uuid4().hex[:12],
-            "post_id": post_id,
-            "author_username": ctx.local_peer.username,
-            "body": body.body.strip(),
-            "created_at": datetime.now(UTC).isoformat(),
-        }
-        for debate in ctx.debates_cache:
-            if debate["id"] == post_id:
-                debate["replies"].append(reply)
-                break
+        try:
+            reply = await community_svc.reply_debate(post_id, body.body)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Failed to post reply: {exc}",
+            ) from exc
+        await ctx.event_bus.publish_community_update({"action": "debate_replied", "reply": reply})
         return reply
 
     @app.get("/api/rooms")
     async def list_rooms() -> dict[str, Any]:
-        return {
-            "rooms": list(ctx.rooms_cache),
-            "messages": list(ctx.room_messages_cache[-100:]),
-        }
+        return await community_svc.list_rooms()
 
     @app.post("/api/rooms/{room_id}/join")
     async def join_room(room_id: str) -> dict[str, Any]:
-        if isinstance(ctx.server_coordinator, ICommunityActionPort):
-            try:
-                await ctx.server_coordinator.join_room(room_id)
-            except Exception as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=f"Failed to join room: {exc}",
-                ) from exc
-        if not any(r["id"] == room_id for r in ctx.rooms_cache):
-            ctx.rooms_cache.append(
-                {"id": room_id, "name": room_id, "visibility": "private", "member_count": 1}
-            )
-        return {"room_id": room_id, "joined": True}
+        try:
+            return await community_svc.join_room(room_id)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Failed to join room: {exc}",
+            ) from exc
 
     @app.post("/api/rooms/{room_id}/messages", status_code=status.HTTP_201_CREATED)
     async def send_room_message(room_id: str, body: RoomMessageRequest) -> dict[str, Any]:
-        if isinstance(ctx.server_coordinator, ICommunityActionPort):
-            try:
-                await ctx.server_coordinator.send_room_message(
-                    room_id=room_id,
-                    sender_id=ctx.local_peer.peer_id,
-                    sender_username=ctx.local_peer.username,
-                    content=body.content,
-                )
-            except Exception as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=f"Failed to send room message: {exc}",
-                ) from exc
-        payload = {
-            "room_id": room_id,
-            "sender_id": ctx.local_peer.peer_id,
-            "sender_username": ctx.local_peer.username,
-            "content": body.content.strip(),
-            "created_at": datetime.now(UTC).isoformat(),
-        }
-        ctx.room_messages_cache.append(payload)
+        try:
+            payload = await community_svc.send_room_message(room_id, body.content)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Failed to send room message: {exc}",
+            ) from exc
         await ctx.event_bus.publish_room_message(payload)
         return payload
 
     @app.get("/api/chat/private")
     async def list_private_messages() -> dict[str, Any]:
+        await _hydrate_pending_private_messages()
         return {
             "messages": list(ctx.private_messages_cache[-100:]),
-            "blocked_peers": sorted(ctx.local_peer.blocked_peer_ids),
+            "blocked_peers": community_svc.list_blocked_peers(),
         }
 
     @app.post("/api/chat/private", status_code=status.HTTP_201_CREATED)
@@ -884,45 +1010,38 @@ def create_client_app(
     @app.post("/api/peers/{peer_id}/block")
     async def block_peer(peer_id: str) -> dict[str, Any]:
         try:
-            ctx.local_peer.block_peer(peer_id)
+            blocked = community_svc.block_peer(peer_id)
         except DomainValidationError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-        return {"blocked": True, "blocked_peers": sorted(ctx.local_peer.blocked_peer_ids)}
+        return {"blocked": True, "blocked_peers": blocked}
 
     @app.post("/api/peers/{peer_id}/unblock")
     async def unblock_peer(peer_id: str) -> dict[str, Any]:
-        ctx.local_peer.unblock_peer(peer_id)
-        return {"blocked": False, "blocked_peers": sorted(ctx.local_peer.blocked_peer_ids)}
+        blocked = community_svc.unblock_peer(peer_id)
+        return {"blocked": False, "blocked_peers": blocked}
 
     # --- 6. Personal Library (Cas_04) ---
 
     @app.get("/api/library")
     async def list_library() -> dict[str, Any]:
-        return {"items": list(ctx.library_cache)}
+        return {"items": await community_svc.list_library()}
 
     @app.post("/api/library", status_code=status.HTTP_201_CREATED)
     async def save_library_item(body: LibrarySaveRequest) -> dict[str, Any]:
         try:
-            SharedFile(file_hash=body.file_hash, file_name=body.title, size_bytes=0)
+            entry = await community_svc.save_to_library(
+                body.file_hash,
+                body.title,
+                category=body.category,
+            )
         except DomainValidationError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-        if isinstance(ctx.server_coordinator, ICommunityActionPort):
-            try:
-                await ctx.server_coordinator.save_to_library(body.file_hash, body.title)
-            except Exception as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=f"Failed to save to library: {exc}",
-                ) from exc
-        entry = {
-            "file_hash": body.file_hash,
-            "title": body.title.strip(),
-            "category": body.category,
-            "saved_at_iso": datetime.now(UTC).isoformat(),
-            "source": "preserved",
-        }
-        ctx.library_cache = [i for i in ctx.library_cache if i["file_hash"] != body.file_hash]
-        ctx.library_cache.insert(0, entry)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Failed to save to library: {exc}",
+            ) from exc
+        await ctx.event_bus.publish_library_update({"action": "library_saved", "item": entry})
         return entry
 
     # --- Real-time WebSocket UI Channel (/ws/ui) ---
@@ -931,6 +1050,7 @@ def create_client_app(
     async def ui_websocket(websocket: WebSocket) -> None:
         await ctx.event_bus.connect(websocket)
         try:
+            await _hydrate_incomplete_checkpoints()
             await websocket.send_json(
                 {
                     "event": "snapshot",
@@ -951,18 +1071,3 @@ def create_client_app(
             await ctx.event_bus.disconnect(websocket)
 
     return app
-
-
-def _remember_library_download(ctx: ClientAppContext, shared_file: SharedFile) -> None:
-    if any(i["file_hash"] == shared_file.file_hash for i in ctx.library_cache):
-        return
-    ctx.library_cache.insert(
-        0,
-        {
-            "file_hash": shared_file.file_hash,
-            "title": shared_file.file_name,
-            "category": shared_file.category,
-            "saved_at_iso": datetime.now(UTC).isoformat(),
-            "source": "downloaded",
-        },
-    )

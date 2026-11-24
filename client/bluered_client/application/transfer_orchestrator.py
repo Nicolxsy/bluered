@@ -9,8 +9,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 
-from bluered_contracts.peer_framing import FramingError
-
 from bluered_client.contracts import (
     IDownloadCheckpointStore,
     IIntegrityVerifier,
@@ -19,9 +17,11 @@ from bluered_client.contracts import (
     ITransferEventListener,
 )
 from bluered_client.domain import (
+    DownloadCheckpoint,
     InsufficientDiskSpaceError,
     LocalPeer,
     PeerBlockedError,
+    PeerTransportError,
     QueueFullError,
     RemoteFileChangedError,
     RemotePeer,
@@ -75,6 +75,19 @@ class TransferOrchestrator:
 
     def get_target_path(self, task_id: str) -> Path | None:
         return self._target_paths.get(task_id)
+
+    def get_peer(self, task_id: str) -> RemotePeer | None:
+        return self._peers.get(task_id)
+
+    async def get_checkpoint(self, task_id: str) -> DownloadCheckpoint | None:
+        if self._checkpoint_store is None:
+            return None
+        return await self._checkpoint_store.get_download_checkpoint(task_id)
+
+    async def list_incomplete_checkpoints(self) -> list[DownloadCheckpoint]:
+        if self._checkpoint_store is None:
+            return []
+        return await self._checkpoint_store.list_incomplete_checkpoints()
 
     @staticmethod
     def _part_path_for(target_path: Path) -> Path:
@@ -268,7 +281,7 @@ class TransferOrchestrator:
             PeerBlockedError,
             QueueFullError,
             TransferIntegrityError,
-            FramingError,
+            PeerTransportError,
             OSError,
             TimeoutError,
             RuntimeError,
@@ -365,13 +378,21 @@ class TransferOrchestrator:
         if (task is None or target_path is None) and self._checkpoint_store is not None:
             cp = await self._checkpoint_store.get_download_checkpoint(task_id)
             if cp is not None:
+                restored_state = TransferState(cp.state)
+                if restored_state in {
+                    TransferState.QUEUED,
+                    TransferState.HANDSHAKING,
+                    TransferState.TRANSFERRING,
+                    TransferState.RESUMING,
+                }:
+                    restored_state = TransferState.PAUSED
                 task = TransferTask(
                     task_id=cp.task_id,
                     file_hash=cp.file_hash,
                     file_name=cp.file_name,
                     total_bytes=cp.total_bytes,
                     remote_peer_id=cp.source_peer_id,
-                    state=TransferState(cp.state),
+                    state=restored_state,
                     bytes_transferred=cp.bytes_transferred,
                 )
                 target_path = cp.target_path

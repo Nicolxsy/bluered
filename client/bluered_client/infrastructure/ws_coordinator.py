@@ -8,7 +8,8 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
-from typing import Protocol
+from typing import Any, Protocol
+from urllib.parse import urlparse
 
 from bluered_contracts.control_plane import (
     AuthErrorMessage,
@@ -17,11 +18,15 @@ from bluered_contracts.control_plane import (
     AuthRegisterMessage,
     BloomSyncMessage,
     CommunityCreateMessage,
+    CommunityFetchMessage,
     CommunityListMessage,
     ControlPlaneEnvelope,
+    DebateFetchMessage,
+    DebateListMessage,
     DebatePostMessage,
     DebateReplyMessage,
     HeartbeatMessage,
+    LibraryFetchMessage,
     LibraryListMessage,
     LibrarySaveMessage,
     NatPunchCoordinateMessage,
@@ -32,6 +37,7 @@ from bluered_contracts.control_plane import (
     ReviewPublishMessage,
     ReviewsFetchMessage,
     ReviewsListMessage,
+    RoomFetchMessage,
     RoomJoinMessage,
     RoomListMessage,
     RoomMessage,
@@ -58,6 +64,11 @@ NatSignalHandler = Callable[
     Awaitable[None],
 ]
 PresenceHandler = Callable[[PresenceUpdateMessage], Awaitable[None]]
+ReauthenticatedHandler = Callable[[str], Awaitable[None]]
+CommunityListHandler = Callable[[list[dict[str, Any]]], Awaitable[None]]
+DebateListHandler = Callable[[str, list[dict[str, Any]]], Awaitable[None]]
+RoomListHandler = Callable[[list[dict[str, Any]]], Awaitable[None]]
+LibraryListHandler = Callable[[list[dict[str, Any]]], Awaitable[None]]
 
 
 class IWebSocketTransport(Protocol):
@@ -102,11 +113,16 @@ class WebSocketServerCoordinator:
         self._closing: bool = False
         self._recv_task: asyncio.Task[None] | None = None
         self._heartbeat_task: asyncio.Task[None] | None = None
+        self._reauth_task: asyncio.Task[None] | None = None
+        self._reauth_lock = asyncio.Lock()
+        self._rpc_lock = asyncio.Lock()
 
         self._user_id: str | None = None
         self._username: str | None = None
+        self._password: str | None = None
         self._session_token: str | None = None
         self._tcp_port: int | None = None
+        self._authenticated: bool = False
         self._status: PresenceStatus = PresenceStatus.OFFLINE
         self._last_activity: float = time.monotonic()
 
@@ -114,11 +130,21 @@ class WebSocketServerCoordinator:
         self._review_ack_future: asyncio.Future[ReviewAckMessage] | None = None
         self._search_futures: dict[str, asyncio.Future[SearchResultsMessage]] = {}
         self._reviews_futures: dict[str, asyncio.Future[ReviewsListMessage]] = {}
+        self._community_future: asyncio.Future[CommunityListMessage] | None = None
+        self._debate_futures: dict[str, asyncio.Future[DebateListMessage]] = {}
+        self._debate_action_future: asyncio.Future[DebateListMessage] | None = None
+        self._room_future: asyncio.Future[RoomListMessage] | None = None
+        self._library_future: asyncio.Future[LibraryListMessage] | None = None
 
         self._on_search_broadcast: SearchBroadcastHandler | None = None
         self._on_room_message: RoomMessageHandler | None = None
         self._on_nat_signal: NatSignalHandler | None = None
         self._on_presence: PresenceHandler | None = None
+        self._on_reauthenticated: ReauthenticatedHandler | None = None
+        self._on_communities: CommunityListHandler | None = None
+        self._on_debates: DebateListHandler | None = None
+        self._on_rooms: RoomListHandler | None = None
+        self._on_library: LibraryListHandler | None = None
         self._last_bloom_payload: tuple[int, int, str] | None = None
 
     @staticmethod
@@ -130,12 +156,20 @@ class WebSocketServerCoordinator:
         return self._ws is not None
 
     @property
+    def is_authenticated(self) -> bool:
+        return self._ws is not None and self._authenticated
+
+    @property
     def presence_status(self) -> PresenceStatus:
         return self._status
 
     @property
     def user_id(self) -> str | None:
         return self._user_id
+
+    @property
+    def has_credentials(self) -> bool:
+        return bool(self._username and self._password and self._tcp_port is not None)
 
     def record_activity(self) -> None:
         """Reset inactivity timer and restore ONLINE status if currently AWAY."""
@@ -155,9 +189,49 @@ class WebSocketServerCoordinator:
     def set_presence_handler(self, handler: PresenceHandler) -> None:
         self._on_presence = handler
 
+    def set_reauthenticated_handler(self, handler: ReauthenticatedHandler) -> None:
+        self._on_reauthenticated = handler
+
+    def set_community_list_handler(self, handler: CommunityListHandler) -> None:
+        self._on_communities = handler
+
+    def set_debate_list_handler(self, handler: DebateListHandler) -> None:
+        self._on_debates = handler
+
+    def set_room_list_handler(self, handler: RoomListHandler) -> None:
+        self._on_rooms = handler
+
+    def set_library_list_handler(self, handler: LibraryListHandler) -> None:
+        self._on_library = handler
+
+    async def _close_transport_only(self) -> None:
+        self._closing = True
+        self._authenticated = False
+        self._session_token = None
+        for task in (self._heartbeat_task, self._recv_task, self._reauth_task):
+            if task is not None and not task.done() and task is not asyncio.current_task():
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+        self._heartbeat_task = None
+        self._recv_task = None
+        self._reauth_task = None
+        if self._ws is not None:
+            with contextlib.suppress(Exception):
+                await self._ws.close()
+            self._ws = None
+        self._fail_pending_futures(ControlPlaneError("Disconnected from server"))
+
     async def connect(self, host: str, port: int) -> None:
         """Open persistent WebSocket connection and start recv + heartbeat tasks."""
+        if (
+            self._ws is not None
+            or (self._recv_task is not None and not self._recv_task.done())
+            or (self._heartbeat_task is not None and not self._heartbeat_task.done())
+        ):
+            await self._close_transport_only()
         self._closing = False
+        self._authenticated = False
         self._uri = f"ws://{host}:{port}{self._ws_path}"
         self._ws = await self._connect_fn(self._uri)
         self._status = PresenceStatus.ONLINE
@@ -167,41 +241,113 @@ class WebSocketServerCoordinator:
             self._heartbeat_loop(), name="bluered-ws-heartbeat"
         )
 
-    async def disconnect(self) -> None:
+    async def disconnect(self, *, clear_credentials: bool = True) -> None:
         """Gracefully close WebSocket and cancel background tasks."""
-        self._closing = True
+        await self._close_transport_only()
         self._status = PresenceStatus.OFFLINE
-        for task in (self._heartbeat_task, self._recv_task):
-            if task is not None and not task.done():
-                task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await task
-        self._heartbeat_task = None
-        self._recv_task = None
-        if self._ws is not None:
-            with contextlib.suppress(Exception):
-                await self._ws.close()
-            self._ws = None
-        self._fail_pending_futures(ControlPlaneError("Disconnected from server"))
+        if clear_credentials:
+            self._password = None
+            self._username = None
+            self._user_id = None
 
-    def _fail_pending_futures(self, exc: BaseException) -> None:
-        if self._auth_future is not None and not self._auth_future.done():
-            self._auth_future.set_exception(exc)
+    def _fail_request_futures(
+        self,
+        exc: BaseException,
+        *,
+        include_search: bool = True,
+    ) -> None:
         if self._review_ack_future is not None and not self._review_ack_future.done():
             self._review_ack_future.set_exception(exc)
-        for search_fut in self._search_futures.values():
-            if not search_fut.done():
-                search_fut.set_exception(exc)
-        self._search_futures.clear()
+        if self._community_future is not None and not self._community_future.done():
+            self._community_future.set_exception(exc)
+        if self._debate_action_future is not None and not self._debate_action_future.done():
+            self._debate_action_future.set_exception(exc)
+        if self._room_future is not None and not self._room_future.done():
+            self._room_future.set_exception(exc)
+        if self._library_future is not None and not self._library_future.done():
+            self._library_future.set_exception(exc)
+        if include_search:
+            for search_fut in self._search_futures.values():
+                if not search_fut.done():
+                    search_fut.set_exception(exc)
+            self._search_futures.clear()
         for rev_fut in self._reviews_futures.values():
             if not rev_fut.done():
                 rev_fut.set_exception(exc)
         self._reviews_futures.clear()
+        for deb_fut in self._debate_futures.values():
+            if not deb_fut.done():
+                deb_fut.set_exception(exc)
+        self._debate_futures.clear()
+
+    def _fail_pending_futures(self, exc: BaseException) -> None:
+        if self._auth_future is not None and not self._auth_future.done():
+            self._auth_future.set_exception(exc)
+        self._fail_request_futures(exc)
 
     async def _send_model(self, msg: ControlPlaneEnvelope) -> None:
         if self._ws is None:
             raise ControlPlaneError("WebSocket is not connected")
         await self._ws.send(serialize_control_message(msg))
+
+    def _schedule_reauth(self) -> None:
+        if self._closing or not self.has_credentials:
+            return
+        if self._reauth_task is not None and not self._reauth_task.done():
+            return
+        task = asyncio.create_task(self._reauthenticate(), name="bluered-ws-reauth")
+        self._reauth_task = task
+
+        def _clear(done_task: asyncio.Task[None]) -> None:
+            if self._reauth_task is done_task:
+                self._reauth_task = None
+
+        task.add_done_callback(_clear)
+
+    async def _reauthenticate(self) -> None:
+        async with self._reauth_lock:
+            if self._closing or self._ws is None or self._authenticated:
+                return
+            if not (self._username and self._password and self._tcp_port is not None):
+                return
+            try:
+                user_id, _ = await self.login(self._username, self._password, self._tcp_port)
+                if self._last_bloom_payload is not None:
+                    size_bits, k, bitset_b64 = self._last_bloom_payload
+                    await self.sync_bloom_filter(user_id, size_bits, k, bitset_b64)
+                if self._on_reauthenticated is not None:
+                    await self._on_reauthenticated(user_id)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self._authenticated = False
+                self._status = PresenceStatus.OFFLINE
+
+    async def set_presence_status(self, status: PresenceStatus) -> PresenceStatus:
+        """Update client presence status, disconnecting on OFFLINE and reconnecting on ONLINE."""
+        if status == PresenceStatus.OFFLINE:
+            await self.disconnect(clear_credentials=False)
+            return PresenceStatus.OFFLINE
+        if status == PresenceStatus.AWAY:
+            self._status = PresenceStatus.AWAY
+            return PresenceStatus.AWAY
+
+        self.record_activity()
+        if not self.is_connected and self._uri is not None:
+            parsed = urlparse(self._uri)
+            host = parsed.hostname or "127.0.0.1"
+            port = parsed.port or (443 if parsed.scheme == "wss" else 8000)
+            await self.connect(host, port)
+        if self.is_connected and not self.is_authenticated and self.has_credentials:
+            await self._reauthenticate()
+            if not self._authenticated:
+                self._status = PresenceStatus.OFFLINE
+                return self._status
+        self._status = PresenceStatus.ONLINE
+        if self.is_authenticated and self._user_id is not None and self._tcp_port is not None:
+            with contextlib.suppress(Exception):
+                await self.send_heartbeat(self._user_id, self._tcp_port)
+        return self._status
 
     async def _recv_loop(self) -> None:
         backoff = 0.5
@@ -218,15 +364,20 @@ class WebSocketServerCoordinator:
                 raise
             except (ConnectionClosed, EOFError, ConnectionError):
                 self._ws = None
+                self._authenticated = False
+                self._session_token = None
+                self._fail_pending_futures(ControlPlaneError("Connection closed"))
                 if self._closing or not self._auto_reconnect or self._uri is None:
                     self._status = PresenceStatus.OFFLINE
-                    self._fail_pending_futures(ControlPlaneError("Connection closed"))
                     break
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2.0, 15.0)
                 try:
                     self._ws = await self._connect_fn(self._uri)
-                    if self._user_id is not None and self._tcp_port is not None:
+                    self._status = PresenceStatus.ONLINE
+                    if self.has_credentials:
+                        self._schedule_reauth()
+                    elif self._user_id is not None and self._tcp_port is not None:
                         await self.send_heartbeat(self._user_id, self._tcp_port)
                         if self._last_bloom_payload is not None:
                             size_bits, k, bitset_b64 = self._last_bloom_payload
@@ -246,19 +397,66 @@ class WebSocketServerCoordinator:
             elapsed = time.monotonic() - self._last_activity
             if elapsed >= self._inactivity_timeout_s and self._status == PresenceStatus.ONLINE:
                 self._status = PresenceStatus.AWAY
-            if self._user_id is not None and self._tcp_port is not None:
+            if self._authenticated and self._user_id is not None and self._tcp_port is not None:
                 with contextlib.suppress(Exception):
                     await self.send_heartbeat(self._user_id, self._tcp_port)
+
+    @staticmethod
+    def _map_communities(msg: CommunityListMessage) -> list[dict[str, Any]]:
+        return [
+            {"id": c.id, "name": c.name, "description": c.description}
+            for c in msg.communities
+        ]
+
+    @staticmethod
+    def _map_debates(msg: DebateListMessage) -> list[dict[str, Any]]:
+        return [
+            {
+                "post_id": p.post_id,
+                "community_id": p.community_id,
+                "author_id": p.author_id,
+                "title": p.title,
+                "body": p.body,
+                "parent_post_id": p.parent_post_id,
+                "created_at_iso": p.created_at_iso,
+            }
+            for p in msg.posts
+        ]
+
+    @staticmethod
+    def _map_rooms(msg: RoomListMessage) -> list[dict[str, Any]]:
+        return [
+            {"id": r.id, "name": r.name, "member_count": r.member_count}
+            for r in msg.rooms
+        ]
+
+    @staticmethod
+    def _map_library(msg: LibraryListMessage) -> list[dict[str, Any]]:
+        return [
+            {
+                "file_hash": item.file_hash,
+                "title": item.title,
+                "saved_at_iso": item.saved_at_iso,
+            }
+            for item in msg.items
+        ]
 
     async def _dispatch_message(self, msg: ControlPlaneEnvelope) -> None:
         if isinstance(msg, AuthOkMessage):
             if self._auth_future is not None and not self._auth_future.done():
                 self._auth_future.set_result(msg)
         elif isinstance(msg, AuthErrorMessage):
+            err = ControlPlaneError(f"{msg.code}: {msg.detail}")
             if self._auth_future is not None and not self._auth_future.done():
-                self._auth_future.set_exception(
-                    ControlPlaneError(f"{msg.code}: {msg.detail}")
-                )
+                self._auth_future.set_exception(err)
+                return
+            if msg.code in {"SESSION_EXPIRED", "UNAUTHENTICATED", "INVALID_TOKEN"}:
+                self._authenticated = False
+                self._session_token = None
+                self._fail_request_futures(err, include_search=True)
+                self._schedule_reauth()
+            else:
+                self._fail_request_futures(err, include_search=False)
         elif isinstance(msg, SearchResultsMessage):
             fut = self._search_futures.pop(msg.search_token, None)
             if fut is not None and not fut.done():
@@ -285,8 +483,29 @@ class WebSocketServerCoordinator:
         elif isinstance(msg, PresenceUpdateMessage):
             if self._on_presence is not None:
                 await self._on_presence(msg)
-        elif isinstance(msg, (CommunityListMessage, LibraryListMessage, RoomListMessage)):
-            pass
+        elif isinstance(msg, CommunityListMessage):
+            if self._community_future is not None and not self._community_future.done():
+                self._community_future.set_result(msg)
+            if self._on_communities is not None:
+                await self._on_communities(self._map_communities(msg))
+        elif isinstance(msg, DebateListMessage):
+            deb_fut = self._debate_futures.pop(msg.community_id, None)
+            if deb_fut is not None and not deb_fut.done():
+                deb_fut.set_result(msg)
+            if self._debate_action_future is not None and not self._debate_action_future.done():
+                self._debate_action_future.set_result(msg)
+            if self._on_debates is not None:
+                await self._on_debates(msg.community_id, self._map_debates(msg))
+        elif isinstance(msg, RoomListMessage):
+            if self._room_future is not None and not self._room_future.done():
+                self._room_future.set_result(msg)
+            if self._on_rooms is not None:
+                await self._on_rooms(self._map_rooms(msg))
+        elif isinstance(msg, LibraryListMessage):
+            if self._library_future is not None and not self._library_future.done():
+                self._library_future.set_result(msg)
+            if self._on_library is not None:
+                await self._on_library(self._map_library(msg))
 
     # --- IServerCoordinator ---
 
@@ -295,8 +514,11 @@ class WebSocketServerCoordinator:
         self.record_activity()
         loop = asyncio.get_running_loop()
         self._auth_future = loop.create_future()
-        await self._send_model(AuthRegisterMessage(username=username, password=password))
-        auth_ok = await asyncio.wait_for(self._auth_future, timeout=self._request_timeout_s)
+        try:
+            await self._send_model(AuthRegisterMessage(username=username, password=password))
+            auth_ok = await asyncio.wait_for(self._auth_future, timeout=self._request_timeout_s)
+        finally:
+            self._auth_future = None
         self._user_id = auth_ok.user_id
         self._username = auth_ok.username
         self._session_token = auth_ok.session_token
@@ -307,14 +529,20 @@ class WebSocketServerCoordinator:
         self.record_activity()
         loop = asyncio.get_running_loop()
         self._auth_future = loop.create_future()
+        self._username = username
+        self._password = password
         self._tcp_port = tcp_port
-        await self._send_model(
-            AuthLoginMessage(username=username, password=password, tcp_port=tcp_port)
-        )
-        auth_ok = await asyncio.wait_for(self._auth_future, timeout=self._request_timeout_s)
+        try:
+            await self._send_model(
+                AuthLoginMessage(username=username, password=password, tcp_port=tcp_port)
+            )
+            auth_ok = await asyncio.wait_for(self._auth_future, timeout=self._request_timeout_s)
+        finally:
+            self._auth_future = None
         self._user_id = auth_ok.user_id
         self._username = auth_ok.username
         self._session_token = auth_ok.session_token
+        self._authenticated = True
         self._status = PresenceStatus.ONLINE
         return (auth_ok.user_id, auth_ok.session_token)
 
@@ -377,25 +605,32 @@ class WebSocketServerCoordinator:
 
     async def publish_review(self, file_hash: str, rating: int, comment: str) -> None:
         """Publish a file review and await REVIEW_ACK."""
-        self.record_activity()
-        loop = asyncio.get_running_loop()
-        self._review_ack_future = loop.create_future()
-        await self._send_model(
-            ReviewPublishMessage(file_hash=file_hash, rating=rating, comment=comment)
-        )
-        await asyncio.wait_for(self._review_ack_future, timeout=self._request_timeout_s)
+        async with self._rpc_lock:
+            self.record_activity()
+            loop = asyncio.get_running_loop()
+            self._review_ack_future = loop.create_future()
+            try:
+                await self._send_model(
+                    ReviewPublishMessage(file_hash=file_hash, rating=rating, comment=comment)
+                )
+                await asyncio.wait_for(
+                    self._review_ack_future, timeout=self._request_timeout_s
+                )
+            finally:
+                self._review_ack_future = None
 
     async def fetch_reviews(self, file_hash: str) -> list[FileReview]:
         """Fetch all reviews for file_hash and map to domain FileReview entities."""
-        self.record_activity()
-        loop = asyncio.get_running_loop()
-        fut: asyncio.Future[ReviewsListMessage] = loop.create_future()
-        self._reviews_futures[file_hash] = fut
-        try:
-            await self._send_model(ReviewsFetchMessage(file_hash=file_hash))
-            reviews_msg = await asyncio.wait_for(fut, timeout=self._request_timeout_s)
-        finally:
-            self._reviews_futures.pop(file_hash, None)
+        async with self._rpc_lock:
+            self.record_activity()
+            loop = asyncio.get_running_loop()
+            fut: asyncio.Future[ReviewsListMessage] = loop.create_future()
+            self._reviews_futures[file_hash] = fut
+            try:
+                await self._send_model(ReviewsFetchMessage(file_hash=file_hash))
+                reviews_msg = await asyncio.wait_for(fut, timeout=self._request_timeout_s)
+            finally:
+                self._reviews_futures.pop(file_hash, None)
 
         reviews: list[FileReview] = []
         for item in reviews_msg.reviews:
@@ -415,27 +650,160 @@ class WebSocketServerCoordinator:
             )
         return reviews
 
-    # --- Communities, Rooms & NAT Signaling (Cas_01-Cas_06, Cas_13, Cas_20) ---
+    # --- Communities, Rooms, Library & NAT Signaling (Cas_01-Cas_06, Cas_13, Cas_20) ---
 
-    async def create_community(self, name: str, description: str = "") -> None:
-        self.record_activity()
-        await self._send_model(CommunityCreateMessage(name=name, description=description))
+    async def fetch_communities(self) -> list[dict[str, Any]]:
+        async with self._rpc_lock:
+            self.record_activity()
+            loop = asyncio.get_running_loop()
+            fut: asyncio.Future[CommunityListMessage] = loop.create_future()
+            self._community_future = fut
+            try:
+                await self._send_model(CommunityFetchMessage())
+                msg = await asyncio.wait_for(fut, timeout=self._request_timeout_s)
+            finally:
+                if self._community_future is fut:
+                    self._community_future = None
+            return self._map_communities(msg)
 
-    async def post_debate(self, community_id: str, title: str, body: str) -> None:
-        self.record_activity()
-        await self._send_model(DebatePostMessage(community_id=community_id, title=title, body=body))
+    async def create_community(self, name: str, description: str = "") -> dict[str, Any] | None:
+        async with self._rpc_lock:
+            self.record_activity()
+            loop = asyncio.get_running_loop()
+            fut: asyncio.Future[CommunityListMessage] = loop.create_future()
+            self._community_future = fut
+            try:
+                await self._send_model(
+                    CommunityCreateMessage(name=name, description=description)
+                )
+                msg = await asyncio.wait_for(fut, timeout=self._request_timeout_s)
+            finally:
+                if self._community_future is fut:
+                    self._community_future = None
+            mapped = self._map_communities(msg)
+            matches = [c for c in mapped if c["name"] == name.strip()]
+            return matches[-1] if matches else (mapped[-1] if mapped else None)
 
-    async def reply_debate(self, post_id: str, body: str) -> None:
-        self.record_activity()
-        await self._send_model(DebateReplyMessage(post_id=post_id, body=body))
+    async def fetch_debates(self, community_id: str) -> list[dict[str, Any]]:
+        async with self._rpc_lock:
+            self.record_activity()
+            loop = asyncio.get_running_loop()
+            fut: asyncio.Future[DebateListMessage] = loop.create_future()
+            self._debate_futures[community_id] = fut
+            try:
+                await self._send_model(DebateFetchMessage(community_id=community_id))
+                msg = await asyncio.wait_for(fut, timeout=self._request_timeout_s)
+            finally:
+                self._debate_futures.pop(community_id, None)
+            return self._map_debates(msg)
 
-    async def save_to_library(self, file_hash: str, title: str) -> None:
-        self.record_activity()
-        await self._send_model(LibrarySaveMessage(file_hash=file_hash, title=title))
+    async def post_debate(
+        self, community_id: str, title: str, body: str
+    ) -> dict[str, Any] | None:
+        async with self._rpc_lock:
+            self.record_activity()
+            loop = asyncio.get_running_loop()
+            fut: asyncio.Future[DebateListMessage] = loop.create_future()
+            self._debate_action_future = fut
+            try:
+                await self._send_model(
+                    DebatePostMessage(community_id=community_id, title=title, body=body)
+                )
+                msg = await asyncio.wait_for(fut, timeout=self._request_timeout_s)
+            finally:
+                if self._debate_action_future is fut:
+                    self._debate_action_future = None
+            mapped = self._map_debates(msg)
+            matches = [
+                p
+                for p in mapped
+                if p["parent_post_id"] is None
+                and p["title"] == title.strip()
+                and p["body"] == body.strip()
+            ]
+            if matches:
+                return max(matches, key=lambda p: str(p["created_at_iso"]))
+            return mapped[0] if mapped else None
 
-    async def join_room(self, room_id: str) -> None:
-        self.record_activity()
-        await self._send_model(RoomJoinMessage(room_id=room_id))
+    async def reply_debate(self, post_id: str, body: str) -> dict[str, Any] | None:
+        async with self._rpc_lock:
+            self.record_activity()
+            loop = asyncio.get_running_loop()
+            fut: asyncio.Future[DebateListMessage] = loop.create_future()
+            self._debate_action_future = fut
+            try:
+                await self._send_model(DebateReplyMessage(post_id=post_id, body=body))
+                msg = await asyncio.wait_for(fut, timeout=self._request_timeout_s)
+            finally:
+                if self._debate_action_future is fut:
+                    self._debate_action_future = None
+            mapped = self._map_debates(msg)
+            matches = [
+                p
+                for p in mapped
+                if p["parent_post_id"] == post_id and p["body"] == body.strip()
+            ]
+            if matches:
+                return max(matches, key=lambda p: str(p["created_at_iso"]))
+            return None
+
+    async def fetch_library(self) -> list[dict[str, Any]]:
+        async with self._rpc_lock:
+            self.record_activity()
+            loop = asyncio.get_running_loop()
+            fut: asyncio.Future[LibraryListMessage] = loop.create_future()
+            self._library_future = fut
+            try:
+                await self._send_model(LibraryFetchMessage())
+                msg = await asyncio.wait_for(fut, timeout=self._request_timeout_s)
+            finally:
+                if self._library_future is fut:
+                    self._library_future = None
+            return self._map_library(msg)
+
+    async def save_to_library(self, file_hash: str, title: str) -> dict[str, Any] | None:
+        async with self._rpc_lock:
+            self.record_activity()
+            loop = asyncio.get_running_loop()
+            fut: asyncio.Future[LibraryListMessage] = loop.create_future()
+            self._library_future = fut
+            try:
+                await self._send_model(LibrarySaveMessage(file_hash=file_hash, title=title))
+                msg = await asyncio.wait_for(fut, timeout=self._request_timeout_s)
+            finally:
+                if self._library_future is fut:
+                    self._library_future = None
+            mapped = self._map_library(msg)
+            matches = [i for i in mapped if i["file_hash"] == file_hash]
+            return matches[0] if matches else (mapped[0] if mapped else None)
+
+    async def fetch_rooms(self) -> list[dict[str, Any]]:
+        async with self._rpc_lock:
+            self.record_activity()
+            loop = asyncio.get_running_loop()
+            fut: asyncio.Future[RoomListMessage] = loop.create_future()
+            self._room_future = fut
+            try:
+                await self._send_model(RoomFetchMessage())
+                msg = await asyncio.wait_for(fut, timeout=self._request_timeout_s)
+            finally:
+                if self._room_future is fut:
+                    self._room_future = None
+            return self._map_rooms(msg)
+
+    async def join_room(self, room_id: str) -> list[dict[str, Any]]:
+        async with self._rpc_lock:
+            self.record_activity()
+            loop = asyncio.get_running_loop()
+            fut: asyncio.Future[RoomListMessage] = loop.create_future()
+            self._room_future = fut
+            try:
+                await self._send_model(RoomJoinMessage(room_id=room_id))
+                msg = await asyncio.wait_for(fut, timeout=self._request_timeout_s)
+            finally:
+                if self._room_future is fut:
+                    self._room_future = None
+            return self._map_rooms(msg)
 
     async def send_room_message(
         self,

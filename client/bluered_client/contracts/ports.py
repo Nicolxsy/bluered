@@ -227,3 +227,115 @@ class IStreamingPeerTransport(IPeerTransport, Protocol):
         on_queue_status: Callable[[int], Awaitable[None]] | None = None,
         on_slot_available: Callable[[], Awaitable[None]] | None = None,
     ) -> AsyncIterator[tuple[int, bytes, str]]: ...
+
+
+@runtime_checkable
+class IPeerUploadSession(Protocol):
+    """Per-connection P2P upload/chat session abstraction hiding TCP framing details."""
+
+    @property
+    def remote_peer_id(self) -> str: ...
+
+    async def wait_disconnected(self) -> None: ...
+
+    async def send_browse_response(self, files: list[SharedFile]) -> None: ...
+
+    async def send_private_chat_ack(
+        self, status: str, error_detail: str | None = None
+    ) -> None: ...
+
+    async def send_queue_status(self, queue_position: int, file_hash: str) -> None: ...
+
+    async def send_slot_available(self, file_hash: str) -> None: ...
+
+    async def send_file_chunk(
+        self,
+        file_hash: str,
+        offset: int,
+        chunk_index: int,
+        chunk_sha256: str,
+        payload: bytes,
+    ) -> None: ...
+
+    async def send_transfer_complete(self, file_hash: str, final_offset: int) -> None: ...
+
+    async def send_transfer_error(
+        self, status: str, detail: str, *, file_hash: str | None = None
+    ) -> None: ...
+
+
+@runtime_checkable
+class IPeerUploadHandler(Protocol):
+    """Application-level handler invoked by IPeerUploadServer for incoming P2P requests."""
+
+    def is_peer_blocked(self, peer_id: str) -> bool: ...
+
+    async def handle_browse(self, session: IPeerUploadSession) -> None: ...
+
+    async def handle_download(
+        self, session: IPeerUploadSession, file_hash: str | None, offset: int
+    ) -> None: ...
+
+    async def handle_private_chat(
+        self,
+        session: IPeerUploadSession,
+        *,
+        sender_id: str,
+        recipient_id: str,
+        message_id: str,
+        content: str,
+    ) -> None: ...
+
+
+@runtime_checkable
+class IPeerUploadServer(Protocol):
+    """Data-plane TCP listener port for incoming P2P browse, upload, and private chat."""
+
+    @property
+    def bound_port(self) -> int | None: ...
+
+    async def start(
+        self, host: str, port: int, handler: IPeerUploadHandler
+    ) -> int: ...
+
+    async def stop(self) -> None: ...
+
+
+@runtime_checkable
+class ICommunityActionPort(Protocol):
+    """Optional control-plane extensions for communities, debates, rooms, and library."""
+
+    async def create_community(
+        self, name: str, description: str = ""
+    ) -> dict[str, Any] | None: ...
+
+    async def post_debate(
+        self, community_id: str, title: str, body: str
+    ) -> dict[str, Any] | None: ...
+
+    async def reply_debate(self, post_id: str, body: str) -> dict[str, Any] | None: ...
+
+    async def save_to_library(self, file_hash: str, title: str) -> dict[str, Any] | None: ...
+
+    async def join_room(self, room_id: str) -> list[dict[str, Any]] | None: ...
+
+    async def send_room_message(
+        self,
+        room_id: str,
+        sender_id: str,
+        sender_username: str,
+        content: str,
+    ) -> None: ...
+
+
+@runtime_checkable
+class ICommunitySyncPort(ICommunityActionPort, Protocol):
+    """Extended community port supporting cross-node fetches from the central server."""
+
+    async def fetch_communities(self) -> list[dict[str, Any]]: ...
+
+    async def fetch_debates(self, community_id: str) -> list[dict[str, Any]]: ...
+
+    async def fetch_rooms(self) -> list[dict[str, Any]]: ...
+
+    async def fetch_library(self) -> list[dict[str, Any]]: ...

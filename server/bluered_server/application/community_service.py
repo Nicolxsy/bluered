@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Sequence
 from uuid import uuid4
+
+from bluered_contracts.control_plane import RoomMessage, serialize_control_message
 
 from bluered_server.contracts import IClientPushGateway, ICommunityRepository
 from bluered_server.domain import ChatRoom, Community, DebatePost, LibraryItem
 
 from .errors import NotFoundError, ValidationError
-
-_PROTOCOL_VERSION = "1.0"
 
 
 class CommunityAndChatService:
@@ -67,6 +66,14 @@ class CommunityAndChatService:
         community = await self._community_repo.get_community(community_id)
         if community is None:
             raise NotFoundError(f"Community '{community_id}' not found")
+        if parent_post_id is not None:
+            parent = await self._community_repo.get_debate_post(parent_post_id)
+            if parent is None:
+                raise NotFoundError(f"Parent debate post '{parent_post_id}' not found")
+            if parent.community_id != community_id:
+                raise ValidationError(
+                    f"Parent post '{parent_post_id}' belongs to a different community"
+                )
 
         post = DebatePost(
             post_id=uuid4().hex,
@@ -78,6 +85,28 @@ class CommunityAndChatService:
         )
         await self._community_repo.create_debate_post(post)
         return post
+
+    async def reply_debate(
+        self,
+        *,
+        post_id: str,
+        author_id: str,
+        body: str,
+    ) -> DebatePost:
+        """Create a reply to an existing debate post, inheriting its community (Cas_04)."""
+        parent = await self._community_repo.get_debate_post(post_id)
+        if parent is None:
+            raise NotFoundError(f"Debate post '{post_id}' not found")
+        reply_title = (
+            parent.title[:200] if parent.title.startswith("Re: ") else f"Re: {parent.title}"[:200]
+        )
+        return await self.create_debate_post(
+            community_id=parent.community_id,
+            author_id=author_id,
+            title=reply_title,
+            body=body,
+            parent_post_id=post_id,
+        )
 
     async def list_debate_posts(self, community_id: str) -> list[DebatePost]:
         """List debate posts for a community."""
@@ -120,15 +149,13 @@ class CommunityAndChatService:
         if not targets:
             return 0
 
-        payload = json.dumps(
-            {
-                "protocol_version": _PROTOCOL_VERSION,
-                "type": "ROOM_MESSAGE",
-                "room_id": room_id,
-                "sender_id": sender_id,
-                "sender_username": sender_username,
-                "content": content.strip(),
-            }
+        payload = serialize_control_message(
+            RoomMessage(
+                room_id=room_id,
+                sender_id=sender_id,
+                sender_username=sender_username,
+                content=content.strip(),
+            )
         )
         return await self._push_gateway.broadcast(targets, payload)
 

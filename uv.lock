@@ -278,6 +278,9 @@ source = { editable = "client" }
 dependencies = [
     { name = "aiosqlite" },
     { name = "bluered-contracts" },
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "uvicorn", extra = ["standard"] },
     { name = "websockets" },
 ]
 
@@ -285,6 +288,9 @@ dependencies = [
 requires-dist = [
     { name = "aiosqlite", specifier = ">=0.20" },
     { name = "bluered-contracts", editable = "shared" },
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "httpx", specifier = ">=0.28" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.34" },
     { name = "websockets", specifier = ">=14.0" },
 ]
 

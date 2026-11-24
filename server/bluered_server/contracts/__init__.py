@@ -11,6 +11,7 @@ from .ports import (
     ISessionStore,
     ITokenProvider,
     IUserRepository,
+    IWebSocketGateway,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "ISessionStore",
     "ITokenProvider",
     "IUserRepository",
+    "IWebSocketGateway",
 ]
