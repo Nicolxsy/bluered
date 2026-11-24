@@ -16,6 +16,7 @@ from fastapi import (
     FastAPI,
     HTTPException,
     Query,
+    Request,
     Response,
     WebSocket,
     WebSocketDisconnect,
@@ -280,6 +281,16 @@ def create_client_app(
         version="0.1.0",
         lifespan=lifespan,
     )
+
+    @app.middleware("http")
+    async def _no_cache_ui_assets(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        """Avoid stale SPA assets in the browser after the peer image is rebuilt."""
+        response = await call_next(request)
+        if request.url.path == "/" or request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-cache, must-revalidate"
+        return response
 
     if _STATIC_DIR.is_dir():
         app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
